@@ -5,7 +5,7 @@
 # See LICENSE.PDF   **** NO WARRANTY ****
 #
 # Date: 25 December 2017
-# Revised 13 February 2019
+# Revised 29 April 2019
 #
 ###################
 # Preconfiguration
@@ -131,7 +131,53 @@ case "$1" in
          echo "Done. No errors."
       fi
       # Cleanup object files
-      rm sha256.o wots.o trigg.o
+      rm -f sha256.o wots.o trigg.o
+      if test $MINER -eq 1
+      then
+         rm cuda_trigg.o
+      fi
+      ;;
+   "worker") # Compile worker
+      rm -f ccerror.log
+      echo "Make dependencies..."
+      $CC -c crypto/sha256.c     2>>ccerror.log # Make SHA256
+      $CC -c trigg/trigg.c       2>>ccerror.log # Make Trigg CPU
+      if test $MINER -eq 1
+      then
+         $NVCC -c trigg/cuda_trigg.cu 2>>ccerror.log # Make Trigg CUDA
+      fi
+      echo "Building Mochimo worker..."
+      if test $MINER -eq 1
+      then
+         $CC -o worker worker.c trigg.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
+      else
+         $CC -o worker worker.c trigg.o sha256.o              2>>ccerror.log
+      fi
+      # Show the errors:
+      echo
+      if test -s ccerror.log
+      then
+         echo "ccerror.log contains:"
+         if test $MINER -eq 1
+         then
+            echo " $(grep -c cuda_trigg.o: ccerror.log) CUDA Errors"
+         fi
+         echo "  $(grep -c error: ccerror.log) Errors"
+         echo "  $(grep -c warning: ccerror.log) Warnings"
+         echo "  check the log for details - mochimo/src/ccerror.log"
+         ls -l ccerror.log
+      else
+         echo "Done. No errors."
+         echo
+         echo "Preparing installation..."
+         mkdir -p ../bin
+         echo "Moving worker to ../bin"
+         mv worker ../bin
+         echo
+         echo "Done."
+      fi
+      # Cleanup object files
+      rm -f sha256.o trigg.o
       if test $MINER -eq 1
       then
          rm cuda_trigg.o
@@ -161,10 +207,10 @@ case "$1" in
       ;;
    "clean") # Remove binaries and *.log files
       echo "Remove executable modules..."
-      rm bcon bup bval mochimo sortlt
-      rm wallet neogen txclean
+      rm -f bcon bup bval mochimo sortlt
+      rm -f wallet neogen txclean worker
       echo "Remove log files..."
-      rm *.log
+      rm -f *.log
       echo
       echo "Done."
       ;;
@@ -185,10 +231,10 @@ case "$1" in
    "uninstall") # Uninstall Mochimo system software
       echo "Uninstalling The Mochimo System Software..."
       cd ../bin
-      rm genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
-      rm mochimo bval bcon bup sortlt neogen txclean wallet
-      rm gomochi resume
-      rm d/bc/* d/ng/* d/*
+      rm -f genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
+      rm -f mochimo bval bcon bup sortlt neogen txclean wallet worker
+      rm -f gomochi resume
+      rm -f d/bc/* d/ng/* d/*
       du -d 3
       echo
       echo "Done."
@@ -198,6 +244,8 @@ case "$1" in
       echo
       echo "   command: bin -DCPU     make all binary programs (CPU Miner)"
       echo "            bin -DCUDA    make all binary programs (CUDA Miner)"
+      echo "            worker -DCPU  make only the worker binary program (CPU Miner)"
+      echo "            worker -DCUDA make only the worker binary program (CUDA Miner)"
       echo "            wallet        make only the wallet binary program"
       echo "            clean         remove object files and log files"
       echo "            install       copy binaries and run scripts to ../bin"
