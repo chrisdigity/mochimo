@@ -9,7 +9,21 @@
  * Revised: 28 April 2019
 */
 
-#define VERSIONSTR  "v0.4~BETA"   /*   as printable string */
+/* Terminal Beautify */
+#define NRM  "\x1B[0m"
+#define BOLD    "\x1B[1m"  /* decoration */
+#define DIM     "\x1B[2m" 
+#define ULINE   "\x1B[4m" 
+#define BLINK   "\x1B[5m" 
+#define RED     "\x1B[31m" /* colors */
+#define GREEN   "\x1B[32m"
+#define YELLOW  "\x1B[33m"
+#define BLUE    "\x1B[34m"
+#define MAGENTA "\x1B[35m"
+#define CYAN    "\x1B[36m"
+#define WHITE   "\x1B[37m"
+
+#define VERSIONSTR "Version 0.5" YELLOW "~beta" NRM
 
 /* Include everything that we need */
 #include "config.h"
@@ -29,7 +43,6 @@ extern char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku);
 
 /* Include global data . . . */
 #include "data.c"       /* System wide globals  */
-byte Verbose;           /* Turns on worker output */
 word32 Interval;        /* get_work() poll interval seconds */
 
 /* Support functions  */
@@ -108,7 +121,7 @@ int send_op(NODE *np, int opcode)
  * Converts 8 bytes of little endian data into a hexadecimal
  * character array without extraneous Zeroes.
  * Always writes the first byte of data. */
-char *bnum2hex_trim(byte *bnum)
+char *bytes2hex_trim(byte *bnum)
 {
    static char result[19];
    char next[3] = "0x";
@@ -138,7 +151,7 @@ void wprintf(char *fmt, ...)
    // get timestamp
    time_t t = time(NULL);
    struct tm tm = *localtime(&t);
-
+   
    // return if there's nothing to print
    if(fmt == NULL) return;
    // print timestamp prefix
@@ -171,29 +184,27 @@ int init_miner(byte *mroot, byte diff, byte *bnum)
    int initGPU;
 
    if(Trace)
-      wprintf("initialize miner for block: 0x%s", bnum2hex(bnum));
+      wprintf("initialize miner for block: 0x%s\n", bnum2hex(bnum));
 
    /* Create the solution state-space beginning with
     * the first plausible link on the TRIGG chain. */
    trigg_solve(mroot, diff, bnum);
 
 #ifdef CUDANODE
-
    /* Initialize CUDA specific memory allocations
     * and check for obvious errors */
    initGPU = -1;
    initGPU = trigg_init_cuda(diff, bnum);
    if(initGPU==-1) {
-      wprintf("Error: Cuda initialization failed. Check nvidia-smi");
+      wprintf("%sError: Cuda initialization failed. Check nvidia-smi%s\n", RED, NRM);
       trigg_free_cuda();
       return VERROR;
    }
    if(initGPU<1 || initGPU>64) {
-      wprintf("Error: Unsupported number of GPUs detected -> %d",initGPU);
+      wprintf("%sError: Unsupported number of GPUs detected -> %d%s\n", RED, initGPU, NRM);
       trigg_free_cuda();
       return VERROR;
    }
-
 #endif
 
    return VEOK;
@@ -204,10 +215,8 @@ int init_miner(byte *mroot, byte diff, byte *bnum)
 int uninit_miner()
 {
 #ifdef CUDANODE
-
    /* Free CUDA specific memory allocations */
    trigg_free_cuda();
-
 #endif
 
    return VEOK;
@@ -216,24 +225,27 @@ int uninit_miner()
 /**
  * Get work from a node/pool.
  * Protocol...
- *    Perform Mochimo Network three-way handshake
- *    Send OP code "Send Block" (OP_SEND_BL)
- *    Receive data -> {
- *       TX.Cblocknum = current blockchain height
- *       TX.blocknum = mining block
- *       TX.len = (1 byte)
- *       TX.src = difficulty of mined block (1 byte)
- *       TX.src+1 = merkle root (32 bytes)
- *       if(TX.len > 33)
- *          TX.src+33 = random seed (16 bytes)
- *    } */
+ *    Perform Mochimo Network three-way handshake.
+ *    Send OP code "Send Block" (OP_SEND_BL).
+ *    Receive data into NODE pointer.
+ * Data Received...
+ *    tx,            TX struct containing the received data.
+ *    tx->cblock,    64 bit unsigned integer (little endian) containing the current blockchain height.
+ *    tx->blocknum,  64 bit unsigned integer (little endian) containing the blocknumber to be solved.
+ *    tx->len,       16 bit unsigned integer (little endian) containing the length (in bytes) of data stored in tx->src_addr.
+ *    tx->src_addr,  byte array which contains at least 33 bytes of data...
+ *       byte 0,     8 bit unsigned integer containing the required difficulty to be solved.
+ *       byte 1-32,  32 byte array containing the merkle root to be solved.
+ *       byte 33-48, 16 byte array of random data (used to seed workers differently, to avoid duplicate work)
+ *    } 
+ * Worker Function... */
 int get_work(NODE *np, char *addr)
 {
    int ecode = 0;
 
    // connect and retrieve work
    if(callserver(np, Peerip) != VEOK) {
-      wprintf("Error: Could not connect to %s...", addr);
+      wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM);
       return VERROR;
    }
    if(send_op(np, OP_SEND_BL) != VEOK) ecode = 1;
@@ -242,7 +254,7 @@ int get_work(NODE *np, char *addr)
 
    closesocket(np->sd);
    if(ecode) {
-      wprintf("Error: get_work() failed with ecode(%d)", ecode); 
+      wprintf("%sError: get_work() failed with ecode(%d)%s\n", RED, ecode, NRM); 
       return VERROR;
    }
    return VEOK;
@@ -251,15 +263,18 @@ int get_work(NODE *np, char *addr)
 /**
  * Send work to a node/pool.
  * Protocol...
- *    Perform Mochimo Network three-way handshake
- *    Assemble data -> {
- *       TX.blocknum = mined block (8 bytes)
- *       TX.len = 65 (1 byte)
- *       TX.src = difficulty of mined block (1 byte)
- *       TX.src+1 = merkle root (32 bytes)
- *       TX.src+33 = nonce/haiku (32 bytes)
- *    }
- *    Send OP code "Block Found" (OP_FOUND) */
+ *    Perform Mochimo Network three-way handshake.
+ *    Construct solution data in NODE.tx to send.
+ *    Send OP code "Block Found" (OP_FOUND).
+ * Data Sent...
+ *    tx,            TX struct containing the sent data.
+ *    tx->blocknum,  64 bit unsigned integer (little endian) containing the blocknumber of the solution.
+ *    tx->len,       8 bit unsigned integer containing the value 65.
+ *    tx->src_addr,  byte array containing 65 bytes of data...
+ *       byte 0,     8 bit unsigned integer containing the difficulty of the solution.
+ *       byte 1-32,  32 byte array containing the merkle root that was solved.
+ *       byte 33-64, 32 byte array nonce used to solve the merkle root.
+ * Worker Function... */
 int send_work(BTRAILER *bt, char *addr)
 {
    NODE node;
@@ -267,7 +282,7 @@ int send_work(BTRAILER *bt, char *addr)
 
    // connect
    if(callserver(&node, Peerip) != VEOK) {
-      wprintf("Error: Could not connect to %s...", addr); 
+      wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM); 
       return VERROR;
    }
 
@@ -283,7 +298,7 @@ int send_work(BTRAILER *bt, char *addr)
 
    closesocket(node.sd);
    if(ecode) {
-      wprintf("Error: send_work() failed with ecode(%d)", ecode); 
+      wprintf("%sError: send_work() failed with ecode(%d)%s\n", RED, ecode, NRM); 
       return VERROR;
    }
    return VEOK;
@@ -298,59 +313,54 @@ int worker(char *addr)
    NODE node;
    TX *tx;
    time_t Wtime, Htime, Stime;
-   long long hcount, last_hcount, hps;
-   long long acount, ahps, ms;
-   word16 newseed, len;
+   long long hcount, last_hcount, hps, ahps, ms;
+   word16 len;
    char *haiku;
    int i, j;
-
-   // initialise event timers
-   Ltime = time(NULL);   // UTC seconds
-   Wtime = Ltime - 1;    // get work timer
-   Htime = Ltime;        // haikurate calc timer
-   Stime = Ltime;        // start time
    
-   // initialize metrics
-   char *metric[] = {
+   // initialize...
+   char status[10] = " No Work";  // ... worker status indicator
+   char color[10] = NRM;   // ... output color
+   byte Zeros[8] = {0};    // ... Zeros (comparison blocknumber)
+   byte Mining = 0;        // ... mining state
+   byte hdiff = 0;         // ... tracks solved/host difficulty
+   byte once = 0;          // ... trigger worker output ONCE
+   word32 solutions = 1;   // ... solution count
+   char *metric[] = {      // ... metrics
        "H/s",
       "KH/s",
       "MH/s",
       "GH/s",
       "TH/s"
    };
-   
-   // initialize Zeros (comparison blocknumber)
-   byte Zeros[8] = {0,};
-   
-   // initialize mining state
-   byte Mining = 0;
+
+   // initialise event timers
+   Ltime = time(NULL);   // UTC seconds
+   Wtime = Ltime - 1;    // get work timer
+   Htime = Ltime;        // haikurate calc timer
+   Stime = Ltime;        // start time
 
    // initialize block trailer height
-   bt.bnum[0] = 1;
+   put64(bt.bnum, One);
 
    // initialize Running state
    Running = 1;
    
-   // check Peerip is valid
+   // initialize Peerip
    if((Peerip = str2ip(addr)) == 0) {
-      printf("Peerip is invalid, addr=%s", addr);
+      printf("%sError: Peerip is invalid, addr=%s%s\n", RED, addr, NRM);
       return VERROR;
-   }
-   if(Verbose) {
-      printf("Initialization settings...\n");
-      printf("Host -> %s (%u)\n", addr, Peerip);
-      printf("Port -> %hu\n", Port);
-      printf("Poll -> %u\n\n", Interval);
    }
 
    /* Main miner loop */
    while(Running) {
       Ltime = time(NULL);
 
-      if(Ltime > Wtime) {
+      if(Ltime >= Wtime) {
+         
+         // get work from host
          ms = getms();
          if(get_work(&node, addr) == VEOK) {
-            ms = getms() - ms;
             
             tx = &node.tx;
             len = get16(tx->len);
@@ -360,91 +370,106 @@ int worker(char *addr)
              * ...change to difficulty
              * ...change to mroot        */
             if(cmp64(bt.bnum, tx->blocknum) != 0 ||
-               bt.difficulty[0] != TRANBUFF(tx)[0] ||
+               hdiff != TRANBUFF(tx)[0] ||
                memcmp(bt.mroot, TRANBUFF(tx)+1, 32) != 0) {
-
-               /* free any miner variables */
+               
+               // free any miner variables
                if(Mining)
                   Mining = uninit_miner();
-
+               
                /* new work received
                 * ...update block number
-                * ...update difficulty
+                * ...update host difficulty
                 * ...update mroot
-                * ...update rand2() sequence (if required) */
+                * ...update rand2() sequence (if supplied) */
                memcpy(bt.bnum, tx->blocknum, 8);
-               bt.difficulty[0] = TRANBUFF(tx)[0];
+               hdiff = TRANBUFF(tx)[0];
                memcpy(bt.mroot, TRANBUFF(tx)+1, 32);
                if(len > 33)
-                  srand2(get16(TRANBUFF(tx)+1+32), 0, 0);
+                  srand2(get32(TRANBUFF(tx)+1+32),
+                         get32(TRANBUFF(tx)+1+32+4),
+                         get32(TRANBUFF(tx)+1+32+4+4));
+               
+               // switch difficulty handling to auto if manual too low
+               if(Difficulty != 0 && Difficulty < hdiff) {
+                  wprintf("%sSpecified Difficulty is lower than required! (%d < %d)%s\n",
+                          RED, Difficulty, hdiff, NRM);
+                  wprintf("%sCanging difficulty to auto...%s\n", YELLOW, NRM);
+                  Difficulty = 0;
+               }
+               // auto difficulty handling
+               if(Difficulty == 0)
+                  bt.difficulty[0] = hdiff;
+               // manual difficulty handling
+               else bt.difficulty[0] = Difficulty;
 
                /* test for "start miner" conditions
                 * ...block number cannot be Zero
                 * ...miner initialization must be successful */
                if(cmp64(bt.bnum, Zeros) == 0) {
-                  if(Verbose)
-                     wprintf("Received network pause...\n");
-               } else if(init_miner(bt.mroot, bt.difficulty[0], bt.bnum) != VEOK) {
-                  wprintf("\nError: Miner failes to initialize...\n\n");
-               } else
+                  strcpy(status, "No Work ");
+                  strcpy(color, YELLOW);
+                  once = 1;
+               } else if(init_miner(bt.mroot, bt.difficulty[0], bt.bnum) == VEOK) {
+                  strcpy(status, "New Work");
+                  strcpy(color, NRM);
                   Mining = 1;
+               } else {
+                  strcpy(status, "InitFail");
+                  strcpy(color, RED);
+               }
             }
          }
+         ms = getms() - ms;
          
-         if(Verbose) {
-            // perform immediate haikurate calculations
-            if((Htime = time(NULL) - Htime) == 0)
-               Htime = 1;
-            hps = 100 * hcount / (long long) Htime;
-            // get immediate haiku metric
-            for(i = 0; i < 4; i++) {
-               if(hps < 100000) break;
-               hps = hps / 1000;
-            }
-            // perform alltime haikurate calculations
-            if((Htime = time(NULL) - Stime) == 0)
-               Htime = 1;
-            acount += hcount;
-            ahps = 100 * acount / (long long) Htime;
-            // get alltime haiku metric
-            for(j = 0; j < 4; j++) {
-               if(ahps < 100000) break;
-               ahps = ahps / 1000;
-            }
-
-            // Reset Haiku/s counters
-            hcount = 0;
-            Htime = time(NULL);
-
-            // console output if network not paused
-            if(cmp64(bt.bnum,Zeros) != 0) {
-               wprintf("ping=%lldms | bnum=%s | diff=%d | i:%.02f %s | a:%.02f %s\n",
-                       ms, bnum2hex_trim(bt.bnum), (int)bt.difficulty[0],
-                       ((float) hps) / 100, metric[i], ((float) ahps) / 100, metric[j]);
-               /* Removed info overload
+         // perform haikurate calculations
+         if((Htime = time(NULL) - Htime) == 0)
+            Htime = 1;
+         // use previous haikurate in averaging calculation
+         ahps = ((ahps * 2) + (hcount / (long long)Htime)) / 3;
+         // buff haikurate for cast to float
+         hps = 100 * ahps;
+         // get haikurate metric
+         for(i = 0; i < 4; i++) {
+            if(hps < 100000) break;
+            hps = hps / 1000;
+         }
+         // Reset Haiku/s counters
+         hcount = 0;
+         Htime = time(NULL);
+         
+         if(cmp64(bt.bnum, One) > 0 || once) {
+            if(once) once = 0;
+            wprintf("%s%s | %s | rdiff=%d | %.02f %s [%lldms]%s\n",
+                     color, status, bytes2hex_trim(bt.bnum), hdiff,
+                     ((float) hps) / 100, metric[i], ms, NRM);
+            if(Trace) {
+               printf("  Lseed2=0x%08X | Lseed3=0x%08X | Lseed4=0x%08X\n",
+                      Lseed2, Lseed3, Lseed4);
                printf("  mroot=");
                for(i = 0; i < 32; i++)
                   printf("%02X", bt.mroot[i]);
-               printf("\n"); */
+               printf("\n");
             }
+            
+            // set status to solving
+            strcpy(status, "Solving ");
+            strcpy(color, NRM);
          }
          
-         Wtime = time(NULL) + Interval;
+         // speed up polling if network is paused
+         Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval : Interval/10);
       }
 
       // do the thing
       if(Mining) {
 
 #ifdef CUDANODE
-
          haiku = trigg_generate_cuda(bt.mroot, &hcount);
-
 #endif
 #ifdef CPUNODE
-
          haiku = trigg_generate(bt.mroot, bt.difficulty[0]);
          hcount++;
-
 #endif
 
          // Dynamic sleep function
@@ -454,36 +479,37 @@ int worker(char *addr)
          // Block Solved?
          if(haiku != NULL) {
             // Mmmm... Nice solution
-            if(Verbose) {
-               printf("\n%s\n\n", haiku);
-               wprintf("Found Solution!\n");
-            }
+            printf("\n%s\n\n", haiku);
             // ... better double check solution before sending
             if(!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum))
-               wprintf("Error: The Mochimo gods have rejected your solution :(");
+               wprintf("%sError: The Mochimo gods have rejected your solution :(%s\n", RED, NRM);
             else {
                // Block SOLVED!
                // Offer solution to the gods
-               for(i = 4; i > -1; i--) {
-                  if(send_work(&bt, addr) == VEOK) {
-                     if(Verbose)
-                        wprintf("Solution sent successfully!\n");
-                     break;
+               ms = getms();
+               for(i = 4, j = 0; i > -1; i--) {
+                  if(send_work(&bt, addr) != VEOK) {
+                     sleep(5);
+                     continue;
                   }
-                  if(Verbose)
-                     wprintf("Solution failed to send... %d retries left\n\n", i);
-                  sleep(5);
+                  ms = getms() - ms;
+                  // find solution difficulty
+                  while(trigg_check(bt.mroot, (byte)j, bt.bnum)) j++;
+                  wprintf("%sSolution | %s | sdiff=%d | sols=%u [%lldms]%s\n",
+                           GREEN, bytes2hex_trim(bt.bnum), j-1,
+                           solutions++, ms, NRM);
+                  break;
                }
+               if(i < 0)
+                  wprintf("%sFailed to send solution to host :(%s\n", RED, NRM);
             }
             // reset solution
             haiku = NULL;
-            Wtime = Ltime - Interval;
-            put64(bt.bnum, Zeros);
+            Wtime = Ltime - 1;
+            put64(bt.bnum, One);
          }
-      }
-
-      // Chillax if not Mining
-      if(!Mining) usleep(100000);
+      } else // Chillax if not Mining
+         usleep(1000000);
 
    } /* end while(Running) */
 
@@ -497,8 +523,12 @@ void usage(void)
           "         -aS        set proxy ip to S\n"
           "         -pN        set proxy port to N\n"
           "         -iN        set polling interval to N\n"
+          "         -dN        set difficulty to N\n"
           "         -tN        set Trace to N (0, 1)\n"
           "         -v         turn on verbosity\n"
+          "         -l         open mochi.log file\n"
+          "         -lFNAME    open log file FNAME\n"
+          "         -e         enable error.log file\n"
    );
    exit(0);
 }
@@ -510,7 +540,7 @@ int main(int argc, char **argv)
 {
    static int j;
    static byte endian[] = { 0x34, 0x12 };
-   static char *Pooladdr;
+   static char *Hostaddr = "127.0.0.1";
 
    /* sanity checks */
    if(sizeof(word32) != 4) fatal("word32 should be 4 bytes");
@@ -519,61 +549,75 @@ int main(int argc, char **argv)
       fatal("struct size error.\nSet compiler options for byte alignment.");    
    if(get16(endian) != 0x1234)
       fatal("little-endian machine required for this build.");
-
-   srand16(time(&Ltime));       /* seed ID token generator */
-   srand2(Ltime, 0, 0);
+   
+   /**
+    * Seed ID token generator */
+   srand16(time(&Ltime));
+   srand2(Ltime, 0, rand16());
    
    /**
     * Set Defaults */
-   Peerip = 0x0100007f;    // Default Host 127.0.0.1
-   Interval = 20;          // Default get_work interval seconds
+   //Hostaddr;             // Default Host 127.0.0.1
    Port = Dstport = PORT1; // Default port 2095
-   
+   Interval = 20;          // Default get_work() interval seconds
+   Difficulty = 0;         // Default difficulty (0 = auto)
+   Dynasleep = 10000;
    
    /**
     * Parse command line arguments */
    for(j = 1; j < argc; j++) {
       if(argv[j][0] != '-') usage();
       switch(argv[j][1]) {
-         case 'a':  if(argv[j][2]) Pooladdr = &argv[j][2];
+         case 'a':  if(argv[j][2]) Hostaddr = &argv[j][2];
                     break;
          case 'p':  Port = Dstport = atoi(&argv[j][2]);
                     break;
          case 'i':  if(argv[j][2]) Interval = atoi(&argv[j][2]);
                     break;
+         case 'd':  if(argv[j][2]) Difficulty = atoi(&argv[j][2]);
+                    break;
          case 't':  Trace = atoi(&argv[j][2]); /* set trace level  */
                     break;
-         case 'v':  Verbose = 1; /* set verbosity  */
-                    break;
-         case 'l':  Logfp = fopen(LOGFNAME, "a"); /* open log file used by plog() */
+         case 'l':  if(argv[j][2]) /* open log file used by plog()   */
+                       Logfp = fopen(&argv[j][2], "a");
+                    else
+                       Logfp = fopen(LOGFNAME, "a");
                     break;
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
                     break;
          default:   usage();
       }  /* end switch */
    }  /* end for j */
-
-   /* Force some things */
-   Dynasleep = 10000;
-
+   
    /* Redirect signals */
    for(j = 0; j <= NSIG; j++)
       signal(j, SIG_IGN);
    signal(SIGINT, sigterm);  // signal interrupt, ctrl+c
    signal(SIGTERM, sigterm); // signal terminate, kill
- 
-   // Do I still need this?...v
-   signal(SIGCHLD, SIG_DFL);  /* so waitpid() works */
+   signal(SIGCHLD, SIG_DFL); // default signal handling, so waitpid() works
    
    /**
     * Introducing! */
-   printf("\nMochimo Worker %s - Built on %s %s\n"
-          "Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
-          "\nWorker Running...\n\n", VERSIONSTR, __DATE__, __TIME__);
+   printf("\n"
+          "          @@@@@@@@@          " BOLD  "  __  __         _    " BLUE "_" NRM "            __      __       _           \n" NRM
+          "       @@@   @@    @@@       " BOLD  " |  \\/  |___  __| |_ " BLUE "(_)" NRM "_ __  ___  \\ \\    / /__ _ _| |_____ _ _ \n" NRM
+          "    @@@     @@        @@@    " BOLD  " | |\\/| / _ \\/ _| ' \\| | '  \\/ _ \\  \\ \\/\\/ / _ \\ '_| / / -_) '_|\n" NRM
+          "   @@  @@@@@@@@@@@@@@@  @@   " BOLD  " |_|  |_\\___/\\__|_||_|_|_|_|_\\___/   \\_/\\_/\\___/_| |_\\_\\___|_|  \n" NRM
+          "  @@  @@   @@   @@   @@  @@  "       "  Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
+          " @@   @@   @@   @@   @@   @@ "       "  " VERSIONSTR "            Built on %s %s\n"
+          " @@   @@   @@   @@   @@   @@\n"
+          " @@   @@   @@   @@   @@   @@   " ULINE "Worker Settings" NRM "\n"
+          "  @@  @@   @@   @@   @@  @@  "       "  Connection" BLUE "..." NRM " %s:%hu\n"
+          "   @@@@@@@@@@@@@@@@@@@@@@@   "       "  Check work" BLUE "..." NRM " %u seconds\n"
+          "     @@@             @@@     "       "  Difficulty" BLUE "..." NRM " %u (%s)\n"
+          "        @@@@@@@@@@@@@\n\n"
+
+          "Initializing...\n\n", __DATE__, __TIME__, Hostaddr, Port, Interval, Difficulty,
+          Difficulty > 0 ? "manual" : "auto");
 
    /**
     * Start the worker*/
-   worker(Pooladdr);
+   worker(Hostaddr);
 
    /**
     * End */

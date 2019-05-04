@@ -168,13 +168,6 @@ case "$1" in
          ls -l ccerror.log
       else
          echo "Done. No errors."
-         echo
-         echo "Preparing installation..."
-         mkdir -p ../bin
-         echo "Moving worker to ../bin"
-         mv worker ../bin
-         echo
-         echo "Done."
       fi
       # Cleanup object files
       rm -f sha256.o trigg.o
