@@ -10,7 +10,7 @@
 */
 
 /* Terminal Beautify */
-#define NRM  "\x1B[0m"
+#define NRM     "\x1B[0m"
 #define BOLD    "\x1B[1m"  /* decoration */
 #define DIM     "\x1B[2m" 
 #define ULINE   "\x1B[4m" 
@@ -41,22 +41,22 @@ extern void trigg_free_cuda();
 extern char *trigg_generate_cuda(byte *mroot, unsigned long long *nHaiku);
 #endif
 
-/* Include global data . . . */
-#include "data.c"       /* System wide globals  */
-word32 Interval;        /* get_work() poll interval seconds */
+/* Include global data */
+#include "data.c"          /* System wide globals              */
+word32 Interval;           /* get_work() poll interval seconds */
 
-/* Support functions  */
-#include "error.c"      /* error logging etc.   */
-#include "add64.c"      /* 64-bit assist        */
+/* Support functions   */
+#include "error.c"         /* error logging etc.               */
+#include "add64.c"         /* 64-bit assist                    */
 #include "crypto/crc16.c"
-#include "crypto/crc32.c"      /* for mirroring          */
-#include "rand.c"       /* fast random numbers    */
+#include "crypto/crc32.c"  /* for mirroring                    */
+#include "rand.c"          /* fast random numbers              */
 
-/* Server control */
+/* Server control      */
 #include "util.c"
-#include "sock.c"       /* inet utilities */
-#include "connect.c"    /* make outgoing connection        */
-#include "call.c"       /* callserver() and friends        */
+#include "sock.c"          /* inet utilities                   */
+#include "connect.c"       /* make outgoing connection         */
+#include "call.c"          /* callserver() and friends         */
 #include "str2ip.c"
 
 /**
@@ -67,9 +67,9 @@ void sigterm(int sig)
    Running = 0;
 }
 
-/* Send packet: set advertised fields and crc16.
- * Returns VEOK on success, else VERROR.
- */
+/**
+ * Send packet: set advertised fields and crc16.
+ * Returns VEOK on success, else VERROR. */
 int sendtx(NODE *np)
 {
    int count, len;
@@ -127,12 +127,12 @@ char *bytes2hex_trim(byte *bnum)
    char next[3] = "0x";
    int pos = 7;
    
-   // clear result and begin with "0x"
+   /* clear result and begin with "0x" */
    result[0] = '\0';
    strcat(result, next);
-   // work backwards to find first value
+   /* work backwards to find first value */
    while(bnum[pos] == 0 && pos > 0) pos--;
-   // convert/Store remaining data
+   /* convert/Store remaining data */
    while(pos >= 0) {
       sprintf(next, "%02x", bnum[pos]);
       strcat(result, next);
@@ -148,22 +148,22 @@ void wprintf(char *fmt, ...)
 {
    va_list argp;
    
-   // get timestamp
+   /* get timestamp */
    time_t t = time(NULL);
    struct tm tm = *localtime(&t);
    
-   // return if there's nothing to print
+   /* return if there's nothing to print */
    if(fmt == NULL) return;
-   // print timestamp prefix
+   /* print timestamp prefix */
    printf("[%d-%02d-%02d %02d:%02d:%02d] ",            /* Format */
          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, /*  Date  */
          tm.tm_hour, tm.tm_min, tm.tm_sec);            /*  Time  */
-
-   // print remaining data
+   
+   /* print remaining data */
    va_start(argp, fmt);
    vfprintf(stdout, fmt, argp);
    va_end(argp);
-   // flush to stdout
+   /* flush to stdout */
    fflush(stdout);
 }
 
@@ -243,7 +243,7 @@ int get_work(NODE *np, char *addr)
 {
    int ecode = 0;
 
-   // connect and retrieve work
+   /* connect and retrieve work */
    if(callserver(np, Peerip) != VEOK) {
       wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM);
       return VERROR;
@@ -280,20 +280,20 @@ int send_work(BTRAILER *bt, char *addr)
    NODE node;
    int ecode = 0;
 
-   // connect
+   /* connect */
    if(callserver(&node, Peerip) != VEOK) {
       wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM); 
       return VERROR;
    }
 
-   // setup work to send
+   /* setup work to send */
    put64(node.tx.blocknum, bt->bnum);
    node.tx.src_addr[0] = bt->difficulty[0];
    memcpy(node.tx.src_addr+1,    bt->mroot, 32);
    memcpy(node.tx.src_addr+1+32, bt->nonce, 32);
    node.tx.len[0] = 65;
 
-   // send
+   /* send */
    if(send_op(&node, OP_FOUND) != VEOK) ecode = 1;
 
    closesocket(node.sd);
@@ -318,15 +318,15 @@ int worker(char *addr)
    char *haiku;
    int i, j;
    
-   // initialize...
-   char status[10] = " No Work";  // ... worker status indicator
-   char color[10] = NRM;   // ... output color
-   byte Zeros[8] = {0};    // ... Zeros (comparison blocknumber)
-   byte Mining = 0;        // ... mining state
-   byte hdiff = 0;         // ... tracks solved/host difficulty
-   byte once = 0;          // ... trigger worker output ONCE
-   word32 solutions = 1;   // ... solution count
-   char *metric[] = {      // ... metrics
+   /* initialize... */
+   char status[10] = " No Work";  /* ... worker status indicator        */
+   char color[10] = NRM;          /* ... output color                   */
+   byte Zeros[8] = {0};           /* ... Zeros (comparison blocknumber) */
+   byte Mining = 0;               /* ... mining state                   */
+   byte hdiff = 0;                /* ... tracks solved/host difficulty  */
+   byte once = 0;                 /* ... trigger worker output ONCE     */
+   word32 solutions = 1;          /* ... solution count                 */
+   char *metric[] = {             /* ... metrics                        */
        "H/s",
       "KH/s",
       "MH/s",
@@ -334,19 +334,19 @@ int worker(char *addr)
       "TH/s"
    };
 
-   // initialise event timers
-   Ltime = time(NULL);   // UTC seconds
-   Wtime = Ltime - 1;    // get work timer
-   Htime = Ltime;        // haikurate calc timer
-   Stime = Ltime;        // start time
+   /* initialise event timers */
+   Ltime = time(NULL);   /* UTC seconds          */
+   Wtime = Ltime - 1;    /* get work timer       */
+   Htime = Ltime;        /* haikurate calc timer */
+   Stime = Ltime;        /* start time           */
 
-   // initialize block trailer height
+   /* initialize block trailer height */
    put64(bt.bnum, One);
 
-   // initialize Running state
+   /* initialize Running state */
    Running = 1;
    
-   // initialize Peerip
+   /* initialize Peerip */
    if((Peerip = str2ip(addr)) == 0) {
       printf("%sError: Peerip is invalid, addr=%s%s\n", RED, addr, NRM);
       return VERROR;
@@ -358,7 +358,7 @@ int worker(char *addr)
 
       if(Ltime >= Wtime) {
          
-         // get work from host
+         /* get work from host */
          ms = getms();
          if(get_work(&node, addr) == VEOK) {
             
@@ -373,7 +373,7 @@ int worker(char *addr)
                hdiff != TRANBUFF(tx)[0] ||
                memcmp(bt.mroot, TRANBUFF(tx)+1, 32) != 0) {
                
-               // free any miner variables
+               /* free any miner variables */
                if(Mining)
                   Mining = uninit_miner();
                
@@ -390,17 +390,17 @@ int worker(char *addr)
                          get32(TRANBUFF(tx)+1+32+4),
                          get32(TRANBUFF(tx)+1+32+4+4));
                
-               // switch difficulty handling to auto if manual too low
+               /* switch difficulty handling to auto if manual too low */
                if(Difficulty != 0 && Difficulty < hdiff) {
                   wprintf("%sSpecified Difficulty is lower than required! (%d < %d)%s\n",
                           RED, Difficulty, hdiff, NRM);
                   wprintf("%sCanging difficulty to auto...%s\n", YELLOW, NRM);
                   Difficulty = 0;
                }
-               // auto difficulty handling
+               /* auto difficulty handling */
                if(Difficulty == 0)
                   bt.difficulty[0] = hdiff;
-               // manual difficulty handling
+               /* manual difficulty handling */
                else bt.difficulty[0] = Difficulty;
 
                /* test for "start miner" conditions
@@ -422,19 +422,19 @@ int worker(char *addr)
          }
          ms = getms() - ms;
          
-         // perform haikurate calculations
+         /* perform haikurate calculations */
          if((Htime = time(NULL) - Htime) == 0)
             Htime = 1;
-         // use previous haikurate in averaging calculation
+         /* use previous haikurate in averaging calculation */
          ahps = ((ahps * 2) + (hcount / (long long)Htime)) / 3;
-         // buff haikurate for cast to float
+         /* buff haikurate for cast to float */
          hps = 100 * ahps;
-         // get haikurate metric
+         /* get haikurate metric */
          for(i = 0; i < 4; i++) {
             if(hps < 100000) break;
             hps = hps / 1000;
          }
-         // Reset Haiku/s counters
+         /* Reset Haiku/s counters */
          hcount = 0;
          Htime = time(NULL);
          
@@ -452,16 +452,16 @@ int worker(char *addr)
                printf("\n");
             }
             
-            // set status to solving
+            /* set status to solving */
             strcpy(status, "Solving ");
             strcpy(color, NRM);
          }
          
-         // speed up polling if network is paused
+         /* speed up polling if network is paused */
          Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval : Interval/10);
       }
 
-      // do the thing
+      /* do the thing */
       if(Mining) {
 
 #ifdef CUDANODE
@@ -472,20 +472,20 @@ int worker(char *addr)
          hcount++;
 #endif
 
-         // Dynamic sleep function
+         /* Dynamic sleep function */
          if(last_hcount == hcount)
             usleep(Dynasleep);
          else last_hcount = hcount;
-         // Block Solved?
+         /* Block Solved? */
          if(haiku != NULL) {
-            // Mmmm... Nice solution
+            /* Mmmm... Nice solution */
             printf("\n%s\n\n", haiku);
-            // ... better double check solution before sending
+            /* ... better double check solution before sending */
             if(!trigg_check(bt.mroot, bt.difficulty[0], bt.bnum))
                wprintf("%sError: The Mochimo gods have rejected your solution :(%s\n", RED, NRM);
             else {
-               // Block SOLVED!
-               // Offer solution to the gods
+               /* Block SOLVED! */
+               /* Offer solution to the gods */
                ms = getms();
                for(i = 4, j = 0; i > -1; i--) {
                   if(send_work(&bt, addr) != VEOK) {
@@ -493,7 +493,7 @@ int worker(char *addr)
                      continue;
                   }
                   ms = getms() - ms;
-                  // find solution difficulty
+                  /* find solution difficulty */
                   while(trigg_check(bt.mroot, (byte)j, bt.bnum)) j++;
                   wprintf("%sSolution | %s | sdiff=%d | sols=%u [%lldms]%s\n",
                            GREEN, bytes2hex_trim(bt.bnum), j-1,
@@ -503,12 +503,12 @@ int worker(char *addr)
                if(i < 0)
                   wprintf("%sFailed to send solution to host :(%s\n", RED, NRM);
             }
-            // reset solution
+            /* reset solution */
             haiku = NULL;
             Wtime = Ltime - 1;
             put64(bt.bnum, One);
          }
-      } else // Chillax if not Mining
+      } else /* Chillax if not Mining */
          usleep(1000000);
 
    } /* end while(Running) */
@@ -557,10 +557,9 @@ int main(int argc, char **argv)
    
    /**
     * Set Defaults */
-   //Hostaddr;             // Default Host 127.0.0.1
-   Port = Dstport = PORT1; // Default port 2095
-   Interval = 20;          // Default get_work() interval seconds
-   Difficulty = 0;         // Default difficulty (0 = auto)
+   Port = Dstport = PORT1; /* Default port 2095 */
+   Interval = 20;          /* Default get_work() interval seconds */
+   Difficulty = 0;         /* Default difficulty (0 = auto) */
    Dynasleep = 10000;
    
    /**
@@ -592,9 +591,9 @@ int main(int argc, char **argv)
    /* Redirect signals */
    for(j = 0; j <= NSIG; j++)
       signal(j, SIG_IGN);
-   signal(SIGINT, sigterm);  // signal interrupt, ctrl+c
-   signal(SIGTERM, sigterm); // signal terminate, kill
-   signal(SIGCHLD, SIG_DFL); // default signal handling, so waitpid() works
+   signal(SIGINT, sigterm);  /* signal interrupt, ctrl+c */
+   signal(SIGTERM, sigterm); /* signal terminate, kill */
+   signal(SIGCHLD, SIG_DFL); /* default signal handling, so waitpid() works */
    
    /**
     * Introducing! */
