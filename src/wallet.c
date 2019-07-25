@@ -1,6 +1,6 @@
 /* wallet.c  Prototype wallet
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 15 March 2018
@@ -83,7 +83,7 @@ unsigned sleep(unsigned seconds);
 #define HAS_TAG(addr) \
    (((byte *) (addr))[2196] != 0x42 && ((byte *) (addr))[2196] != 0x00)
 
-#include "crypto/sha256.h"      /* also defines word32 */
+#include "crypto/hash/cpu/sha256.h"      /* also defines word32 */
 #include "crypto/wots/wots.h"   /* TXADDRLEN */
 
 
@@ -280,6 +280,7 @@ void ctrlc(int sig)
 {
    signal(SIGINT, ctrlc);
    Sigint = 1;
+   printf("Received signal %i.\n", sig);
 }
 
 
@@ -494,7 +495,6 @@ SOCKET connectip2(word32 ip, char *addrstr)
    time_t timeout;
 
    if((sd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
-bad:
       printf("connectip(): cannot open socket.\n");
       return INVALID_SOCKET;
    }
@@ -753,7 +753,6 @@ int send_tx(TX *tx, word32 ip, char *addrstr)
 /* Very special for Shylock: */
 void shy_setkey(XO4CTX *ctx, byte *salt, byte *password, unsigned len)
 {
-   int j;
    byte key[256];
 
    memset(key, 0, 256);
@@ -1025,7 +1024,7 @@ int read_wheader(WHEADER *whdr)
 }  /* end read_wheader() */
 
 
-int decrypt_wheader(WHEADER *whdr)
+int decrypt_wheader()
 {
    static byte salt[4];
    shy_setkey(&Xo4ctx, salt, (byte *) Password, PASSWLEN);
@@ -1325,9 +1324,6 @@ int add_addr(WENTRY *entry, char *name)
    word32 lastkey;
    char buff[80];
    long last_idx;
-   byte addr[TXADDRLEN];
-   byte found;
-   int status;
 
    fp = fopen2(Wfname, "ab", 1);  /* open file or fatal() */
    memset(entry, 0, sizeof(WENTRY));
@@ -1454,8 +1450,6 @@ void add_addr2(int promptf)
 {
    WENTRY entry;
    char name[80];
-   char buff[40];
-   long val;
    unsigned idx;
 
    memset(name, 0, 80);
@@ -1641,7 +1635,7 @@ noent:
 }  /* end display_wallet() */
 
 
-int delete_addr(void)
+int archive_addr(void)
 {
    char lbuff[80];
    unsigned idx;
@@ -1649,10 +1643,10 @@ int delete_addr(void)
    WENTRY entry;
 
    if(Nindex == 0) {
-      printf("\nNo addresses to delete.\n");
+      printf("\nNo addresses to archive.\n");
       return VERROR;
    }
-   printf("Delete address index (1-%d): ", Nindex);
+   printf("Archive address index (1-%d): ", Nindex);
    tgets(lbuff, 80);
    idx = atoi(lbuff);
    if(badidx(idx)) return VERROR;
@@ -1660,14 +1654,14 @@ int delete_addr(void)
    if(ecode != VEOK) return ecode;
    if(cmp64(entry.balance, Zeros) != 0)
       printf("Balance is not zero.\n");
-   printf("Delete '%-1.25s' (y/n)? ", entry.name);
+   printf("Archive '%-1.25s' (y/n)? ", entry.name);
    tgets(lbuff, 80);
    if(lbuff[0] != 'y' && lbuff[0] != 'Y') return VEOK;
    put64(entry.balance, Zeros);
    entry.flags[0] |= W_DEL;
    ecode = write_wentry(&entry, idx-1);
    return ecode;
-}  /* end delete_addr() */
+}  /* end archive_addr() */
 
 
 /* Return 1 if tag unusable, else 0. */
@@ -1701,7 +1695,6 @@ int bad_tag(byte *addr)
  */
 int check_bal(unsigned idx)
 {
-   char lbuff[10];
    int ecode;
    WENTRY entry;
    WINDEX *ip;
@@ -1746,11 +1739,9 @@ int spend_addr(void)
    word32 total[2], change[2];
    byte message[32], rnd2[32];
    byte val[8];
-   int status;
    byte found;
    byte olddst[TXADDRLEN];
 
-top:
    memset(&tx, 0, sizeof(TX));
    memset(&sentry, 0, sizeof(WENTRY));
    memset(&dentry, 0, sizeof(WENTRY));
@@ -2176,7 +2167,7 @@ void mainmenu(void)
 
    CLEARSCR();
    printf("\nMochimo Wallet (Build 31)\n"
-          "Copyright (c) 2018 by Adequate Systems, LLC."
+          "Copyright (c) 2019 by Adequate Systems, LLC."
           "  All Rights Reserved.\n\n");
    read_widx();
 
@@ -2200,7 +2191,7 @@ void mainmenu(void)
       printf("\n          Main Menu\n\n"
          "  1. Network status   2. Display          3. Import address\n"
          "  4. Create address   5. Spend address    6. Check balances\n"
-         "  7. Export address   8. Delete address   9. Menu 2\n"
+         "  7. Export address   8. Archive address  9. Menu 2\n"
          "  0. Exit\n\n"
          "  Select: "
       );
@@ -2220,7 +2211,7 @@ void mainmenu(void)
                    printf("\n");
                    display_wallet(0, 0);   break;
          case '7': ext_addr(0);            break;
-         case '8': delete_addr();          break;
+         case '8': archive_addr();          break;
          case '9': if(menu2() == 0) return;
                    break;
          case '0': return;
@@ -2289,7 +2280,7 @@ int main(int argc, char **argv)
       printf("Password:\n");
       tgets(Password, PASSWLEN);
       CLEARSCR();
-      decrypt_wheader(&Whdr);
+      decrypt_wheader();
       printf("Press RETURN to continue or ctrl-c to cancel...\n");
       getchar();
       mainmenu();

@@ -1,6 +1,6 @@
 /* data.c  Global data structures.
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -35,6 +35,10 @@ word32 Time0;        /* for set_difficulty()                      */
 word32 Bridgetime;   /* for Pseudoblock Trigger                   */
 word32 Sanctuary;
 word32 Lastday;
+#ifdef BX_MYSQL
+byte Exportflag;     /* allow database export if compiled         */
+#endif
+
 
 /*
  * real time of current server loop - set by server()
@@ -55,6 +59,10 @@ word32 Rplist[RPLISTLEN];  /* recent peer list */
 word32 Rplistidx;
 word32 Cplist[CPLISTLEN];  /* current peer list */
 word32 Cplistidx;
+/* LAN peer list */
+#define LPLISTLEN 32
+word32 Lplist[LPLISTLEN] = { 0 };
+word32 Splist[RPLISTLEN+LPLISTLEN] = {0};
 
 #define CORELISTLEN 16
 #if CORELISTLEN > RPLISTLEN
@@ -99,6 +107,7 @@ word32 Peerip;            /* gift to bval and others */
 byte Disable_pink;
 byte Needcleanup;         /* set true when Winsock is started */
 char *Corefname = "coreip.lst";  /* Master ip list by main() */
+char *Lpfname = "\0";  /* Local peer ip list by main() */
 pid_t Bcpid;              /* bcon process id */
 byte Bcbnum[8];           /* Cblocknum at time of execl bcon */
 pid_t Sendfound_pid;

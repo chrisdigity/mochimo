@@ -1,6 +1,6 @@
 /* config.h  Mochimo configuration and types.
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 1 January 2018
@@ -37,7 +37,7 @@
 
 /* Version checking */
 #ifndef PVERSION
-#define PVERSION      3      /* protocol version number (short) */
+#define PVERSION      4      /* protocol version number (short) */
 #endif
 
 /* Node type */
@@ -46,6 +46,10 @@
 #endif
 #ifdef CUDA
 #define CUDANODE
+#endif
+
+#if !defined(CUDA) && !defined(CPU) /* default to CPU node if compile option unspecified */
+#define CPUNODE
 #endif
 
 /* Adjustable Parameters */
@@ -75,13 +79,14 @@
 #define WTRIGGER31 17185  /* for v2.0 new add_weight() */
 #define RTRIGGER31 17185  /* for v2.0 new get_mreward() */
 #define FIXTRIGGER 17697  /* for v2.0 difficulty patch */
-#define V23TRIGGER 54321 /* for v2.3 pseudoblocks */
+#define V23TRIGGER 54321  /* for v2.3 pseudoblocks */
+#define V24TRIGGER 0x12851 /* for v2.4 new FPGA Tough algo */
 #define MFEE 500
 
 /* NEWYEAR trigger */
 #define NEWYEAR(bnum) (get32(bnum) >= V23TRIGGER || get32(bnum+4) != 0)
 
-#define WATCHTIME  (BRIDGE*2+1)  /* Default minimum watchdog time for -w switch */
+#define WATCHTIME  (BRIDGE*4+1)  /* Default minimum watchdog time for -w switch */
 #define BRIDGE     949           /* Trouble time -- Edit for testing */
 #define TIMES_OF_TROUBLE() (Ltime >= Bridgetime                \
                             && Cblocknum[0] != 0xfe            \

@@ -1,12 +1,11 @@
 /* init.c  High-level Initialisation functions (included from mochimo.c)
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 11 February 2018
  *
 */
-
 
 int hex2bnum(byte *bnum, char *hex)
 {
@@ -87,25 +86,25 @@ int reset_difficulty(char *lastfname, char *bcdir)
 }  /* end reset_difficulty() */
 
 
-/* Read-in the core ip list text file
+/* Read-in the ip list text file
  * each line:
  * 1.2.3.4  or
  * host.domain.name
  */
-int read_coreipl(char *fname)
+int read_ipl(char *fname, word32 *plist, uint32_t plist_len)
 {
    FILE *fp;
    char buff[128];
    int j;
    char *addrstr;
-   word32 ip, *ipp;
+   word32 ip;
 
-   if(Trace) plog("Entering read_coreipl()");
+   if(Trace) plog("Entering read_ipl()");
    if(fname == NULL || *fname == '\0') return VERROR;
    fp = fopen(fname, "rb");
    if(fp == NULL) return VERROR;
 
-   for(j = 0; j < CORELISTLEN; ) {
+   for(j = 0; j < plist_len; ) {
       if(fgets(buff, 128, fp) == NULL) break;
       if(*buff == '#') continue;
       addrstr = strtok(buff, " \r\n\t");
@@ -113,13 +112,23 @@ int read_coreipl(char *fname)
       if(addrstr == NULL) break;
       ip = str2ip(addrstr);
       if(!ip) continue;
-      /* put ip in Coreplist[j] */
-      Coreplist[j++] = ip;
-      if(Trace) plog("Added 0x%08x to Coreplist", ip);  /* debug */
+      /* put ip in plist[j] */
+      plist[j++] = ip;
+      if(Trace) plog("Added 0x%08x to plist", ip);  /* debug */
    }
    fclose(fp);
    return j;
 }  /* end read_coreipl() */
+
+/* Read in the core ip list text file */
+int read_coreipl(char *fname) {
+	return read_ipl(fname, Coreplist, CORELISTLEN);
+}
+
+/* Read in the local ip list text file */
+int read_localipl(char *fname) {
+	return read_ipl(fname, Lplist, LPLISTLEN);
+}
 
 
 /* Get an ip list from ip and copy it into np,
@@ -158,7 +167,6 @@ word32 init_coreipl(NODE *np, char *fname)
 {
    word32 *ipp, ip, return_ip;
    int j;
-   int len;
    word32 rplistidx, rplist[RPLISTLEN];
 
    show("coreipl");
@@ -348,6 +356,7 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
    word32 now;
    word32 tcount;
    static word32 tottrigger[2] = { V23TRIGGER, 0 };
+   static word32 v24trigger[2] = { V24TRIGGER, 0 };
 
    *result = 100;                 /* I/O high error code */
    memset(highblock, 0, 8);       /* start from genesis block */
@@ -425,8 +434,16 @@ byte *tfval(char *fname, byte *highblock, int weight_only, int *result)
       ecode++;
       /* check enforced delay 9 */
       if(highblock[0] && tcount) {
-         if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL)
+         if(cmp64(bt.bnum, v24trigger) > 0) { /* v2.4 */
+            if(peach(&bt, get32(bt.difficulty), NULL, 1)){
             break;
+            }
+         }
+         if(cmp64(bt.bnum, v24trigger) <= 0) { /* v2.3 and prior */ 
+            if(trigg_check(bt.mroot, bt.difficulty[0], bt.bnum) == NULL) {
+            break;
+            }
+         }
       }
       ecode = 10;
       if(cmp64(highblock, tottrigger) > 0 &&
@@ -655,7 +672,6 @@ int get_eon(NODE *np, word32 peerip)
    char cpbuff[NGBUFFLEN];    /* neo-gen transfer */
    char fname[128], tofname[128];
    time_t timeout;
-   BTRAILER bt;
    static byte val256[8] = { 0x0, 0x1 };
 
    plog("Entering get_eon()");
@@ -877,6 +893,13 @@ top:
          goto try_again;
       }
    }  /* end for block download-update */
+#ifdef BX_MYSQL
+   // Post-sync hook for database export
+   if (Exportflag) {
+     printf("Exporting to database.\n");
+     system("../bx -e");
+   }
+#endif
    if(!Running) resign("quorum update");
 
    /* ****************
@@ -926,7 +949,6 @@ try_again:
 int init(void)
 {
    NODE node;  /* holds peer tx.cblock and tx.cblockhash */
-   char fname[128];
    int result;
    byte diff[8], highblock[8], *wp;
    word32 solved;
@@ -962,6 +984,10 @@ int init(void)
       fatal("init(): bad tfile.dat -- gomochi!");
    }
    memcpy(Weight, wp, HASHLEN);
+
+   /* read local nodes into Lplist */
+   read_localipl(Lpfname);
+
 
    /* read into Coreplist[], shuffle, and get IPL */
    if(*Corefname)

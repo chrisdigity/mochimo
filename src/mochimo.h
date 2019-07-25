@@ -1,6 +1,6 @@
 /* mochimo.h   Master Header
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 2 January 2018
@@ -31,7 +31,7 @@
 #define NSIG 23
 #endif
 
-#include "crypto/sha256.h"
+#include "crypto/hash/cpu/sha256.h"
 
 #ifdef DEBUG
 #define debug(_x) if(Trace > 1) plog(_x)
@@ -50,12 +50,15 @@
 #define VEBAD2      3      /* client was naughty          */
 #define VETIMEOUT   (-1)   /* socket timeout              */
 
-#define TRUE     1
-#define FALSE    0
+#ifndef TRUE
+	#define TRUE     1
+#endif
+#ifndef FALSE
+	#define FALSE    0
+#endif
 
 #ifndef SOCKET
          #define SOCKET unsigned int   /* Borland 32-bit */
-         #define INVALID_SOCKET  (SOCKET)(~0)
 #endif
 
 #ifndef SOCKET_ERROR

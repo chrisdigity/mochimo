@@ -1,6 +1,6 @@
 /* proto.h  Mochimo function prototypes
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 28 February 2018
@@ -37,6 +37,7 @@ int get_block2(word32 ip, byte *bnum, char *fname, word16 opcode);
 /* Source file: init.c */
 int get_ipl(NODE *np, word32 ip);
 int read_coreipl(char *fname);
+int read_localipl(char *fname);
 word32 init_coreipl(NODE *np, char *fname);
 void add_weight(byte *weight, int difficulty, byte *bnum);
 int cmp_weight(byte *w1, byte *w2);
@@ -64,3 +65,7 @@ int checkproof(TX *tx);
 /* Source file: renew.c */
 int renew(void);
 int refresh_ipl(void);
+
+/* Source file: algo/peach/peach.c */
+int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode);
+

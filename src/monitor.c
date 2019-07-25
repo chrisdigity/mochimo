@@ -1,14 +1,13 @@
 /* monitor.c  Mochimo System Monitor
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * Date: 3 January 2018
 */
 
 
-unsigned long Hps;  /* haiku per second from miner.c hps.dat */
-
+word32 Hps; /* haiku per second from miner.c hps.dat */
 
 char *tgets(char *buff, int len)
 {
@@ -56,7 +55,7 @@ int stats(int showflag)
    printf("Current block: 0x%s\n", bnum2hex(Cblocknum));
    printf("Weight:        0x...%s\n"
           "Difficulty:    %d  %s\n", bnum2hex(Weight),
-          Difficulty, Mpid ? "solving..." : "");
+          Difficulty, Mpid ? "solving..." : "waiting for tx...");
    return 0;
 } /* end stats() */
 
@@ -64,7 +63,7 @@ int stats(int showflag)
 /* short stat display */
 void betabait(void)
 {
-   unsigned long hps;
+   word32 hps; /* haiku per second from miner.c hps.dat */
 
    if(read_data(&hps, sizeof(hps), "hps.dat") == sizeof(hps))
       Hps = hps;
@@ -77,17 +76,16 @@ void betabait(void)
                "   Balances sent:   %u\n"
                "   Blocks solved:   %u\n"
                "   Blocks updated:  %u\n"
-               "   Haiku/second:    %lu\n"
+               "   Haiku/second:    %u %s\n"
                "\n",
 
                 Eon, Ngen,
                 Nonline,  Nrec, Nsent, Nsolved, Nupdated,
-                (unsigned long) Hps
+                (word32) Hps, Hps ? "" : "(calculated after 2 TXs/updates)"
    );
-
    printf("Current block: 0x%s\n"
           "Difficulty:    %d  %s\n\n", bnum2hex(Cblocknum),
-          Difficulty, Mpid ? "solving..." : "");
+          Difficulty, Mpid ? "solving..." : "waiting for TX...");
 } /* end betabait() */
 
 

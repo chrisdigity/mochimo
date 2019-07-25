@@ -1,6 +1,6 @@
 /* mochimo.c
  *
- * Copyright (c) 2018 by Adequate Systems, LLC.  All Rights Reserved.
+ * Copyright (c) 2019 by Adequate Systems, LLC.  All Rights Reserved.
  * See LICENSE.PDF   **** NO WARRANTY ****
  *
  * The Mochimo Project System Software
@@ -10,8 +10,8 @@
 */
 
 /* build sequence */
-#define PATCHLEVEL 33
-#define VERSIONSTR  "33"   /*   as printable string */
+#define PATCHLEVEL 34
+#define VERSIONSTR  "34"   /*   as printable string */
 
 /* Include everything that we need */
 #include "config.h"
@@ -66,6 +66,7 @@ void usage(void)
           "         -qN        set Quorum to N (default 4)\n"
           "         -vN        set virtual mode: N = 1 or 2\n"
           "         -cFNAME    read core ip list from FNAME\n"
+          "         -LFNAME    read local peer ip list from FNAME\n"
           "         -c         disable read core ip list\n"
           "         -d         disable pink lists\n"
           "         -pN        set port to N\n"
@@ -80,6 +81,9 @@ void usage(void)
           "         -Mn        set transaction fee to n\n"
           "         -Sanctuary=N,Lastday\n"
    );
+#ifdef BX_MYSQL
+   printf("         -X         Export to MySQL database on block update\n");
+#endif
    exit(0);
 }
 
@@ -136,10 +140,13 @@ int main(int argc, char **argv)
                        Logfp = fopen(&argv[j][2], "a");
                     else
                        Logfp = fopen(LOGFNAME, "a");
+                    Cbits |= C_LOGGING;
                     break;
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
                     break;
          case 'c':  Corefname = &argv[j][2];  /* master network */
+                    break;
+         case 'L':  Lpfname = &argv[j][2];  /* local peer network */
                     break;
          case 'd':  Disable_pink = 1;  /* disable pink lists */
                     break;
@@ -184,6 +191,10 @@ int main(int argc, char **argv)
                        Dstport = PORT1;  Port = PORT2;
                     }
                     break;
+#ifdef BX_MYSQL
+         case 'X':  Exportflag = 1;
+                    break;
+#endif
          default:   usage();
       }  /* end switch */
    }  /* end for j */
@@ -201,7 +212,7 @@ int main(int argc, char **argv)
    if(!Bgflag) printf("\n");
 
    plog("\nMochimo Server (Build %d)  PVERSION: %d  Built on %s %s\n"
-        "Copyright (c) 2018 Adequate Systems, LLC.  All rights reserved.\n"
+        "Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
         "\nBooting",
         PATCHLEVEL, PVERSION, __DATE__, __TIME__);
 
@@ -212,10 +223,9 @@ int main(int argc, char **argv)
 
    server();                  /* start server */
 
-done:
-    plog("Server exiting . . .");
-    save_rplist();
-    savepink();
-    pause_server();
-    return 0;              /* never gets here */
+   plog("Server exiting . . .");
+   save_rplist();
+   savepink();
+   pause_server();
+   return 0;              /* never gets here */
 } /* end main() */
