@@ -2,6 +2,8 @@
 #ifndef CUDA_PEACH_H
 #define CUDA_PEACH_H
 
+#define MAX_GPUS 64
+
 #include <stdint.h>
 #include <sys/time.h>
 #include <cuda_runtime.h>
@@ -12,9 +14,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-   int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
-   void free_cuda_peach();
-   void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
 
    typedef struct __peach_cuda_ctx {
       byte *nonce, *d_nonce;
@@ -43,8 +42,14 @@ extern "C" {
       uint32_t temp;
       uint32_t power;
    } GPU_t;
-#define MAX_GPUS 64
    extern GPU_t gpus[MAX_GPUS];
+   
+   int init_cuda_peach(PeachCudaCTX *ctx, byte difficulty, byte *prevhash,
+                       byte *bt);
+   void free_cuda_peach();
+   void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
+   byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag);
+   
 #ifdef __cplusplus
 }
 #endif

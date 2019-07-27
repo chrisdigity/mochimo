@@ -60,11 +60,9 @@
 #include "../init.c"       /* read Coreplist[] and get_eon()  */
 #include "../server.c"     /* tcp server                      */
 
-/* peach algo prototypes */
-int init_cuda_peach(byte difficulty, byte *prevhash, byte *blocknumber);
-void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
+int init_cuda_peach(PeachCudaCTX *ctx, byte difficulty, byte *prevhash, byte *bt);
 void free_cuda_peach();
-
+void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
 
 int test_miner(byte nsolve)
 {
@@ -132,7 +130,7 @@ int test_miner(byte nsolve)
       if(Trace == 1)
          printf("Initializing miner...\n");
       inittime[i] = time(NULL);
-      if (init_cuda_peach(Difficulty, bt.phash, (byte *) &bt) < 1)
+      if (init_cuda_peach(NULL, Difficulty, bt.phash, (byte *) &bt) < 1)
       {
          error("Miner failed to initilize CUDA devices\n");
          return 0;

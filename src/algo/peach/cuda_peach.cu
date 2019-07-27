@@ -195,7 +195,7 @@ extern "C" {
 uint8_t enable_nvml = 0;
 GPU_t gpus[MAX_GPUS] = { 0 };
 uint32_t num_gpus = 0;
-/* Max 63 GPUs Supported */
+/* Max 64 GPUs Supported */
 PeachCudaCTX peach_ctx[64];
 PeachCudaCTX *ctx = peach_ctx;
 int32_t nGPU = 0;
@@ -272,8 +272,13 @@ int init_nvml() {
    return 1;
 }
 
-int init_cuda_peach(byte difficulty, byte *prevhash, byte *bt) {
+int init_cuda_peach(PeachCudaCTX *init_ctx, byte difficulty, byte *prevhash,
+                    byte *bt)
+{
    int i;
+   
+   /* Select default ctx if NULL */
+   if(init_ctx != NULL) ctx = init_ctx;
    
    /* Obtain and check system GPU count */
    nGPU = 0;
@@ -334,7 +339,7 @@ int init_cuda_peach(byte difficulty, byte *prevhash, byte *bt) {
       
       /* Setup map and cache */
       cudaMalloc(&ctx[i].d_map, MAP_LENGTH);
-      cuda_build_map<<<4096, 256, 16, ctx[i].stream>>>(ctx[i].d_map);
+      cuda_build_map<<<4096, 256, 0, ctx[i].stream>>>(ctx[i].d_map);
    }
    
    /* Check for any GPU initialization errors */
@@ -422,7 +427,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
                                        cudaMemcpyHostToDevice, ctx[i].stream);
             }
             /* Start GPU round */
-            cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,0,ctx[i].stream>>>
+            cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,16,ctx[i].stream>>>
             (ctx[i].scan_offset, ctx[i].d_map, ctx[i].d_found, ctx[i].d_nonce);
             /* Retrieve GPU found status */
             cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
@@ -501,5 +506,78 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
    }
 }
 
+__host__ byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag)
+{
+   int i, j, k;
+   double tdiff;
+   uint32_t shps;
+   uint64_t ustart, uend;
+   
+   for (i=0; i<nGPU; i++) {
+      /* Check if GPU has finished */
+      cudaSetDevice(i);
+      if(cudaStreamQuery(ctx[i].stream) == cudaSuccess) {
+         /* Obtain haiku/s calc data */
+         gettimeofday(&(ctx[i].t_end), NULL);
+         ustart = 1000000 * ctx[i].t_start.tv_sec + ctx[i].t_start.tv_usec;
+         if (ustart > 0) {
+            uend = 1000000 * ctx[i].t_end.tv_sec + ctx[i].t_end.tv_usec;
+            tdiff = (uend - ustart) / 1000.0 / 1000.0;
+         }
+         gettimeofday(&(ctx[i].t_start), NULL);
+         
+         /* Check for a solved block */
+         if(*ctx[i].found==1) { /* SOLVED A BLOCK! */
+            /* Reset GPU found status */
+            cudaMemset(ctx[i].d_found, 0, 4);
+            *ctx[i].found = 0;
+            /* Copy found nonce to bt */
+            cudaMemcpy(ctx[i].nonce, ctx[i].d_nonce, 32, cudaMemcpyDeviceToHost);
+            memcpy(bt + 92, ctx[i].nonce, 32);
+            return 1;
+         }
+         
+         /* Init GPU data if necessary */
+         if (ctx[i].scan_offset + ctx[i].nblock >= ctx[i].nthread) {
+            /* Reset offset */
+            ctx[i].scan_offset = 0;
+            /* Generate random seed array data */
+            for(j = 0, k = ctx[i].nthread * 16; j < k; j += 16)
+               trigg_gen(ctx[i].input + j);
+            /* Send new seed array data */
+            cudaMemcpyToSymbolAsync(c_input, ctx[i].input, k, 0,
+                                    cudaMemcpyHostToDevice, ctx[i].stream);
+         }
+         /* Start GPU round */
+         cuda_find_peach<<<ctx[i].nblock,ctx[i].nthread,16,ctx[i].stream>>>
+            (ctx[i].scan_offset, ctx[i].d_map, ctx[i].d_found, ctx[i].d_nonce);
+         /* Retrieve GPU found status */
+         cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
+
+         /* Add to haiku count */
+         *nHaiku += ctx[i].total_threads;
+         ctx[i].scan_offset += ctx[i].nblock;
+         
+         /* Perform per GPU Haiku/s cacluation */
+         if (ustart > 0) {
+            ctx[i].hps_index = (ctx[i].hps_index + 1) % 3;
+            ctx[i].hps[ctx[i].hps_index] = ctx[i].total_threads / tdiff;
+            shps = 0;
+            for (j = 0; j < 3; j++) {
+               shps += ctx[i].hps[j];
+            }
+            ctx[i].ahps = shps / 3;
+         }
+      }
+      
+      /* Waiting on GPU? ... */
+      if(cudaCheckError("cuda_peach()", i, __FILE__)) {
+         *runflag = 0;
+         return 0;
+      }
+   }
+   
+   return 0;
+}
 
 }

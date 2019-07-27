@@ -260,7 +260,7 @@ case "$1" in
          $NVCC -c algo/peach/cuda_peach.cu $LD_FLAGS 2>>ccerror.log # Make Peach CUDA
          fnCHECKERRORS
          printf "Building Mochimo worker..."
-         $CC -o worker worker.c trigg.o sha256.o cuda_trigg.o $LD_FLAGS 2>>ccerror.log
+         $CC -o worker worker.c trigg.o sha256.o cuda_peach.o $LD_FLAGS 2>>ccerror.log
       else # CPU Code
          printf "Building Mochimo worker..."
          $CC -o worker worker.c trigg.o sha256.o 2>>ccerror.log
