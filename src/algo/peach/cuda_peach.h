@@ -44,11 +44,11 @@ extern "C" {
    } GPU_t;
    extern GPU_t gpus[MAX_GPUS];
    
-   int init_cuda_peach(PeachCudaCTX *ctx, byte difficulty, byte *prevhash,
-                       byte *bt);
+   int init_cuda_peach(PeachCudaCTX *ctx, byte difficulty, byte *bt);
+   int update_cuda_peach(byte difficulty, byte *bt);
    void free_cuda_peach();
    void cuda_peach(byte *bt, uint32_t *hps, byte *runflag);
-   byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag);
+   byte cuda_peach_worker(byte *bt, byte *runflag);
    
 #ifdef __cplusplus
 }

@@ -272,8 +272,7 @@ int init_nvml() {
    return 1;
 }
 
-int init_cuda_peach(PeachCudaCTX *init_ctx, byte difficulty, byte *prevhash,
-                    byte *bt)
+int init_cuda_peach(PeachCudaCTX *init_ctx, byte difficulty, byte *bt)
 {
    int i;
    
@@ -294,7 +293,7 @@ int init_cuda_peach(PeachCudaCTX *init_ctx, byte difficulty, byte *prevhash,
    /* Copy immediate block data to pinned memory */
    *found = 0;
    *diff = difficulty;
-   memcpy(phash, prevhash, 32);
+   memcpy(phash, bt, 32);
    
    /* Precompute SHA256 */
    sha256_init(precompute_ctx);
@@ -351,6 +350,51 @@ int init_cuda_peach(PeachCudaCTX *init_ctx, byte difficulty, byte *prevhash,
    }
 
    return nGPU;
+}
+
+int update_cuda_peach(byte difficulty, byte *bt)
+{
+   int i;
+   
+   /* Bail out if no GPU initialized */
+   if(nGPU<1 || nGPU>64) return -1;
+   
+   /* Copy immediate block data to pinned memory */
+   *found = 0;
+   *diff = difficulty;
+   
+   /* Precompute SHA256 */
+   sha256_init(precompute_ctx);
+   sha256_update(precompute_ctx, bt, 92);
+   
+   /* Initialize GPU data asynchronously */
+   for (i = 0; i < nGPU; i++) {
+      cudaSetDevice(i);
+      
+      /* Copy updated block data to device memory */
+      cudaMemcpyToSymbolAsync(c_difficulty, diff, 1, 0,
+                              cudaMemcpyHostToDevice, ctx[i].stream);
+      cudaMemcpyToSymbolAsync(c_precomputed_sha256, precompute_ctx,
+                              sizeof(SHA256_CTX), 0, cudaMemcpyHostToDevice,
+                              ctx[i].stream);
+      
+      /* Set remaining device memory */
+      cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
+      memset(ctx[i].found, 0, 4);
+      
+      /* Set scan offset to 1024*/
+      ctx[i].scan_offset = ctx[i].nthread;
+   }
+   
+   /* Check for any GPU initialization errors */
+   for(i = 0; i < nGPU; i++) {
+      cudaSetDevice(i);
+      cudaStreamSynchronize(ctx[i].stream);
+      if(cudaCheckError("init_cuda_peach()", i, __FILE__))
+         return -1;
+   }
+
+   return 0;
 }
 
 void free_cuda_peach() {
@@ -506,7 +550,7 @@ __host__ void cuda_peach(byte *bt, uint32_t *hps, byte *runflag)
    }
 }
 
-__host__ byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag)
+__host__ byte cuda_peach_worker(byte *bt, byte *runflag)
 {
    int i, j, k;
    double tdiff;
@@ -527,13 +571,13 @@ __host__ byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag)
          gettimeofday(&(ctx[i].t_start), NULL);
          
          /* Check for a solved block */
-         if(*ctx[i].found==1) { /* SOLVED A BLOCK! */
-            /* Reset GPU found status */
-            cudaMemset(ctx[i].d_found, 0, 4);
-            *ctx[i].found = 0;
+         if(*ctx[i].found == 1) { /* SOLVED A BLOCK! */
             /* Copy found nonce to bt */
             cudaMemcpy(ctx[i].nonce, ctx[i].d_nonce, 32, cudaMemcpyDeviceToHost);
             memcpy(bt + 92, ctx[i].nonce, 32);
+            /* Reset GPU found status */
+            cudaMemsetAsync(ctx[i].d_found, 0, 4, ctx[i].stream);
+            memset(ctx[i].found, 0, 4);
             return 1;
          }
          
@@ -555,7 +599,6 @@ __host__ byte cuda_peach_worker(byte *bt, uint64_t *nHaiku, byte *runflag)
          cudaMemcpyAsync(ctx[i].found, ctx[i].d_found, 4, cudaMemcpyDeviceToHost);
 
          /* Add to haiku count */
-         *nHaiku += ctx[i].total_threads;
          ctx[i].scan_offset += ctx[i].nblock;
          
          /* Perform per GPU Haiku/s cacluation */

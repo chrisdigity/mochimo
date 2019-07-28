@@ -85,7 +85,7 @@ int miner(char *blockin, char *blockout)
       
 #ifdef CUDANODE
          /* Allocate and initialize necessary memory on CUDA devices */
-         if (init_cuda_peach(NULL, Difficulty, bt.phash, (byte *) &bt) < 1) {
+         if (init_cuda_peach(NULL, Difficulty, (byte *) &bt) < 1) {
             error("Miner failed to initilize CUDA devices\n");
             break;
          }
