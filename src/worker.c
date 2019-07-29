@@ -23,7 +23,7 @@
 #define CYAN    "\x1B[36m"
 #define WHITE   "\x1B[37m"
 
-#define VERSIONSTR "Version 0.6" YELLOW "~beta" NRM
+#define VERSIONSTR "Version 0.7" YELLOW "~beta" NRM
 
 /* Core includes */
 #include "config.h"
@@ -337,10 +337,11 @@ int worker(char *addr)
    uint64_t hcount, last_hcount, hps[16];
    uint64_t msping, msinit;
    time_t Wtime, Stime;
-   word32 shares;
    word16 len;
-   byte nvml_ok, Mining, result, rdiff, sdiff;
    char haiku[256];
+   word32 shares, lastshares, haikus;
+   byte Mining, nvml_ok, result;
+   byte rdiff, sdiff, adiff;
    int i, j, k;
    
    /* Initialize... */
@@ -353,7 +354,9 @@ int worker(char *addr)
    result = 0;                 /* ... holds result of certain ops    */
    rdiff = 0;                  /* ... tracks required difficulty     */
    sdiff = 0;                  /* ... tracks solving difficulty      */
+   adiff = 0;                  /* ... tracks auto difficulty buff    */
    shares = 0;                 /* ... solution count                 */
+   lastshares = 0;             /* ... solution count (from get_work) */
 
    /* ... event timers */
    Ltime = time(NULL);   /* UTC seconds          */
@@ -390,11 +393,20 @@ int worker(char *addr)
             
             tx = &node.tx;
             len = get16(tx->len);
+            /* check for autodiff adjustment conditions */
+            if(Difficulty == 0 && lastshares + 2 < shares) {
+               for(i = shares - lastshares + 2; i > 0; i /= 3)
+                  adiff++;
+               wprintf("%sAutoDiff | Adjust Difficulty %d -> %d%s\n",
+                       YELLOW, sdiff, rdiff + adiff, NRM);
+            }
 
             /* check data for new work
-             * ...change to difficulty
+             * ...change to requested difficulty
+             * ...change to auto difficulty
              * ...change to block trailer */
             if(rdiff != TRANBUFF(tx)[160] ||
+               (Difficulty == 0 && sdiff != rdiff + adiff) ||
                memcmp((byte *) &bt, TRANBUFF(tx), 92) != 0) {
                
                /* new work received
@@ -416,7 +428,7 @@ int worker(char *addr)
                   Difficulty = 0;
                }
                if(Difficulty == 0)
-                  sdiff = rdiff;
+                  sdiff = rdiff + adiff;
                else
                   sdiff = Difficulty;
                
@@ -496,6 +508,9 @@ int worker(char *addr)
          
          /* speed up polling if network is paused */
          Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval : Interval/10);
+         
+         /* reset autodiff share indicator */
+         lastshares = shares;
       }
 
       /* do the thing */
@@ -520,11 +535,13 @@ int worker(char *addr)
                   msping = getms();
                   if(send_work(&bt, sdiff, addr) == VEOK) {
                      msping = getms() - msping;
-
                      shares++;
+
                      /* Estimate Share Rate */
-                        /* determine average haikurate */
-                        ahps = shares * (1 << sdiff) / (time(NULL) - Stime);
+                        /* add to total haikus */
+                        haikus += (1 << sdiff);
+                        /* calculate average haikurate over session */
+                        ahps = haikus / (time(NULL) - Stime);
                         /* get haikurate metric */
                         for(i = 0; i < 4; i++) {
                            if(ahps < 1000) break;
@@ -532,8 +549,9 @@ int worker(char *addr)
                         }
                      /* end Estimate Share Rate */
                      
+                     
                      /* Output share statistics */
-                     wprintf("%sSuccess! | Shares: %u | Est. Share Rate "
+                     wprintf("%sSuccess! | Shares: %u | Est. sRate "
                              "%.02f %s [%lums]%s\n", GREEN, shares, ahps,
                              metric[i], msping, NRM);
                      break;
