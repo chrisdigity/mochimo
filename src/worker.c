@@ -394,7 +394,7 @@ int worker(char *addr)
             tx = &node.tx;
             len = get16(tx->len);
             /* check for autodiff adjustment conditions */
-            if(Difficulty == 0 && lastshares + 2 < shares) {
+            if(Difficulty == 255 && lastshares + 2 < shares) {
                for(i = shares - lastshares + 2; i > 0; i /= 3)
                   adiff++;
                wprintf("%sAutoDiff | Adjust Difficulty %d -> %d%s\n",
@@ -406,7 +406,7 @@ int worker(char *addr)
              * ...change to auto difficulty
              * ...change to block trailer */
             if(rdiff != TRANBUFF(tx)[160] ||
-               (Difficulty == 0 && sdiff != rdiff + adiff) ||
+               (Difficulty == 255 && sdiff != rdiff + adiff) ||
                memcmp((byte *) &bt, TRANBUFF(tx), 92) != 0) {
                
                /* new work received
@@ -421,13 +421,15 @@ int worker(char *addr)
                          get32(TRANBUFF(tx)+164+4+4));
                
                /* switch difficulty handling to auto if manual too low */
-               if(Difficulty != 0 && Difficulty < rdiff) {
+               if(Difficulty != 0 && Difficulty != 255 && Difficulty < rdiff) {
                   wprintf("%sDifficulty is lower than required!"
                           " (%d < %d)%s\n", RED, Difficulty, rdiff, NRM);
                   wprintf("%sSwitching difficulty to auto...%s\n", YELLOW, NRM);
                   Difficulty = 0;
                }
                if(Difficulty == 0)
+                  sdiff = rdiff;
+               else if(Difficulty == 255)
                   sdiff = rdiff + adiff;
                else
                   sdiff = Difficulty;
@@ -627,9 +629,9 @@ int main(int argc, char **argv)
     * Set Defaults */
    Port = Dstport = PORT1; /* Default port 2095 */
    Interval = 20;          /* Default get_work() interval seconds */
-   Difficulty = 0;         /* Default difficulty (0 = auto) */
    Dynasleep = 10000;
    Blockfound = 0;
+   Difficulty = 0;         /* Default difficulty (0 = host) */
    Running = 1;
    
    
