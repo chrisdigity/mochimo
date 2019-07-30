@@ -41,6 +41,7 @@ void stop_mirror(void) { /* do nothing */ }
 /* Include global data */
 #include "data.c"          /* System wide globals              */
 word32 Interval;           /* get_work() poll interval seconds */
+char *Name;                /* pointer to worker name           */
 
 /* Support functions   */
 #include "error.c"         /* error logging etc.               */
@@ -310,6 +311,8 @@ int send_work(BTRAILER *bt, byte diff, char *addr)
    }
 
    /* setup work to send */
+   if(Name)
+      strcpy(node.tx.weight, Name);
    node.tx.len[0] = 164;
    memcpy(node.tx.src_addr, bt, 160);
    memcpy(node.tx.src_addr+160, &diff, 4);
@@ -365,6 +368,12 @@ int worker(char *addr)
 
    /* ... block trailer height */
    put64(bt.bnum, One);
+   
+   if(Name && strlen(Name) > 31) {
+      Name[31] = 0;
+      printf("%sWarning: A worker name can only be 31 characters long. Your\n"
+             "worker name has been shortened to: %s%s\n\n", YELLOW, Name, NRM);
+   }
    
 #ifdef CUDANODE
    /* ... CUDA context */
@@ -594,6 +603,7 @@ void usage(void)
           "         -pN        set proxy port to N\n"
           "         -iN        set polling interval to N\n"
           "         -dN        set difficulty to N\n"
+          "         -wNAME     set worker name to NAME\n"
           "         -tN        set Trace to N (0, 1)\n"
           "         -v         turn on verbosity\n"
           "         -l         open mochi.log file\n"
@@ -657,6 +667,8 @@ int main(int argc, char **argv)
                     break;
          case 'i':  if(argv[j][2]) Interval = atoi(&argv[j][2]);
                     break;
+         case 'w':  if(argv[j][2])
+                       Name = &argv[j][2];
          case 'd':  if(argv[j][2]) Difficulty = atoi(&argv[j][2]);
                     break;
          case 't':  Trace = atoi(&argv[j][2]); /* set trace level  */
