@@ -40,7 +40,9 @@ void stop_mirror(void) { /* do nothing */ }
 
 /* Include global data */
 #include "data.c"          /* System wide globals              */
-word32 Interval;           /* get_work() poll interval seconds */
+byte Interval;             /* get_work() poll interval seconds */
+byte Mining;               /* triggers the mining process      */
+byte Showhaiku;            /* triggers the output of haiku     */
 char *Name;                /* pointer to worker name           */
 
 /* Support functions   */
@@ -184,7 +186,7 @@ uint64_t getms() {
 
 /**
  * Initialize miner and allocate memory where appropriate */
-int init_miner(PeachCudaCTX *ctx, BTRAILER *bt, byte diff)
+int init_miner(void *ctx, BTRAILER *bt, byte diff)
 {
    int initGPU;
 
@@ -247,19 +249,14 @@ int uninit_miner()
  *    Send OP code "Send Block" (OP_SEND_BL).
  *    Receive data into NODE pointer.
  * Data Received...
- *    tx,            TX struct containing the received data.
- *    tx->cblock,    64 bit unsigned integer (little endian) containing the
- *                   current blockchain height.
- *    tx->blocknum,  64 bit unsigned integer (little endian) containing the
- *                   blocknumber to be solved.
- *    tx->len,       16 bit unsigned integer (little endian) containing the
- *                   length (in bytes) of data stored in tx->src_addr.
- *    tx->src_addr,  byte array which contains at least 33 bytes of data...
- *       byte 0,     8 bit unsigned integer containing the required difficulty
- *                   to be solved.
- *       byte 1-32,  32 byte array containing the merkle root to be solved.
- *       byte 33-48, 16 byte array of random data (used to seed workers
- *                   differently, to avoid duplicate work)
+ *    tx,              TX struct containing the received data.
+ *    tx->len,         16 bit unsigned integer (little endian) containing the
+ *                     length (in bytes) of data stored in tx->src_addr.
+ *    tx->src_addr,    byte array containing at least 164 bytes of data...
+ *       byte 0-159,   ... 160 byte block trailer to be used for mining.
+ *       byte 160-163, ... 32 bit (little endian) host difficulty.
+ *       byte 164-178, ... 16 byte array of random data
+ *                         (intended use; avoid duplicate work between workers)
  *    } 
  * Worker Function... */
 int get_work(NODE *np, char *addr)
@@ -290,14 +287,14 @@ int get_work(NODE *np, char *addr)
  *    Construct solution data in NODE.tx to send.
  *    Send OP code "Block Found" (OP_FOUND).
  * Data Sent...
- *    tx,            TX struct containing the sent data.
- *    tx->blocknum,  64 bit unsigned integer (little endian) containing the
- *                   blocknumber of the solution.
- *    tx->len,       8 bit unsigned integer containing the value 65.
- *    tx->src_addr,  byte array containing 65 bytes of data...
- *       byte 0,     8 bit unsigned integer containing the difficulty of the solution.
- *       byte 1-32,  32 byte array containing the merkle root that was solved.
- *       byte 33-64, 32 byte array nonce used to solve the merkle root.
+ *    tx,              TX struct containing the sent data.\
+ *    tx->len,         16 bit unsigned integer (little endian) containing the
+ *                     length (in bytes) of data stored in tx->src_addr. (164)
+ *    tx->src_addr,    byte array which contains at least 33 bytes of data...
+ *       byte 0-159,   ... 160 byte block trailer containing valid nonce.
+ *       byte 160-163, ... 32 bit (little endian) share difficulty.
+ * Optional data sent...
+ *    tx->weight,      31 characters of space for a worker name.
  * Worker Function... */
 int send_work(BTRAILER *bt, byte diff, char *addr)
 {
@@ -336,30 +333,28 @@ int worker(char *addr)
    BTRAILER bt;
    NODE node;
    TX *tx;
-   float ahps;
-   uint64_t hcount, last_hcount, hps[16];
-   uint64_t msping, msinit;
+   float hps, thps;
    time_t Wtime, Stime;
-   word16 len;
-   char haiku[256];
+   uint64_t msping, msinit;
    word32 shares, lastshares, haikus;
-   byte Mining, nvml_ok, result;
    byte rdiff, sdiff, adiff;
+   byte nvml_ok, result;
    int i, j, k;
    
    /* Initialize... */
    char *metric[] = {
        "H/s", "KH/s", "MH/s", "GH/s", "TH/s"
    };                          /* ... haikurate metrics              */
+   char haiku[256];            /* ... stores nonce as haiku          */
    byte Zeros[32] = {0};       /* ... Zeros (comparison hash)        */
    byte lasthash[32] = {0};    /* ... lasthash (comparison hash)     */
-   Mining = 0;                 /* ... mining state                   */
    result = 0;                 /* ... holds result of certain ops    */
    rdiff = 0;                  /* ... tracks required difficulty     */
    sdiff = 0;                  /* ... tracks solving difficulty      */
    adiff = 0;                  /* ... tracks auto difficulty buff    */
    shares = 0;                 /* ... solution count                 */
    lastshares = 0;             /* ... solution count (from get_work) */
+   tx = &(node.tx);            /* ... store pointer to node.tx       */
 
    /* ... event timers */
    Ltime = time(NULL);   /* UTC seconds          */
@@ -369,6 +364,15 @@ int worker(char *addr)
    /* ... block trailer height */
    put64(bt.bnum, One);
    
+   /* Check worker settings */
+   if((Peerip = str2ip(addr)) == 0) {
+      printf("%sError: Peerip is invalid, addr=%s%s\n", RED, addr, NRM);
+      return VERROR;
+   }
+   if(Interval == 0) {
+      printf("%sError: Interval must be greater than Zero (0)%s\n", RED, NRM);
+      return VERROR;
+   }
    if(Name && strlen(Name) > 31) {
       Name[31] = 0;
       printf("%sWarning: A worker name can only be 31 characters long. Your\n"
@@ -382,26 +386,17 @@ int worker(char *addr)
    /* ... enhanced NVIDIA stats reporting */
    nvml_ok = init_nvml();
 #endif
-   
-   /* ... Peerip */
-   if((Peerip = str2ip(addr)) == 0) {
-      printf("%sError: Peerip is invalid, addr=%s%s\n", RED, addr, NRM);
-      return VERROR;
-   }
 
    /* Main miner loop */
    while(Running) {
       Ltime = time(NULL);
 
       if(Ltime >= Wtime) {
-         
          /* get work from host */
          msping = getms();
          if(get_work(&node, addr) == VEOK) {
             msping = getms() - msping;
             
-            tx = &node.tx;
-            len = get16(tx->len);
             /* check for autodiff adjustment conditions */
             if(Difficulty == 255 && lastshares + 2 < shares) {
                for(i = shares - lastshares + 2; i > 0; i /= 3)
@@ -424,7 +419,7 @@ int worker(char *addr)
                 * ...update rand2() sequence (if supplied) */
                rdiff = TRANBUFF(tx)[160];
                memcpy((byte *) &bt, TRANBUFF(tx), 160);
-               if(len > 164)
+               if(get16(tx->len) > 164)
                   srand2(get32(TRANBUFF(tx)+164),
                          get32(TRANBUFF(tx)+164+4),
                          get32(TRANBUFF(tx)+164+4+4));
@@ -448,8 +443,8 @@ int worker(char *addr)
                   wprintf("%sNo Work  | Waiting on host...%s\n", YELLOW, NRM);
                   Mining = 0;
                } else {
-                  wprintf("%sNew Work | %s, d%d, t%d | ",
-                          YELLOW, bytes2hex_trim(bt.bnum), rdiff, get32(bt.tcount));
+                  wprintf("%sNew Work | %s, d%d, t%d | ", YELLOW,
+                          bytes2hex_trim(bt.bnum), rdiff, get32(bt.tcount));
                   
                   /* free any miner variables ONLY ON NEW PHASH */
                   if(memcmp(lasthash, Zeros, 32) != 0 &&
@@ -465,7 +460,7 @@ int worker(char *addr)
                      msinit = getms();
                      result = init_miner(ctx, &bt, sdiff);
                   } else {
-                     printf("Updating...%s", NRM);
+                     printf("Updating...");
                      fflush(stdout);
                      msinit = getms();
                      result = update_miner(&bt, sdiff);
@@ -487,21 +482,24 @@ int worker(char *addr)
          }
          
          if(cmp64(bt.bnum, One) > 0) {
+            /* print individual device haikurates */
             wprintf("Devices ");
+            thps = 0;
             for(i = 0; i < 64; i++) {
                if(ctx[i].total_threads) {
-                  ahps = ctx[i].ahps;
-                  for(j = 0; ahps > 1000 && j < 4; j++)
-                     ahps /= 1000;
-                  printf(" | %d: %.02f %s", i, ahps, metric[j]);
+                  hps = ctx[i].ahps;
+                  thps += hps;
+                  for(j = 0; hps > 1000 && j < 4; j++)
+                     hps /= 1000;
+                  printf(" | %d: %.02f %s", i, hps, metric[j]);
                }
             }
-            /* average, reduce and print total hps *
-            while(ahps > 1000 && j < 4) {
-               ctx[i].ahps /= 1000;
-               j++;
+            /* print a "total haikurate" if more than one device */
+            if(ctx[1].total_threads) {
+               for(j = 0; thps > 1000 && j < 4; j++)
+                  thps /= 1000;
+               printf(" | Total: %.02f %s", thps, metric[j]);
             }
-            printf("Total: %.02f %s\n", ahps, metric[j]); */
             printf("\n");
             /* extra output */
             if(Trace) {
@@ -518,7 +516,8 @@ int worker(char *addr)
          }
          
          /* speed up polling if network is paused */
-         Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval : Interval/10);
+         Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval :
+                               Interval/10 == 0 ? 1 : Interval/10);
          
          /* reset autodiff share indicator */
          lastshares = shares;
@@ -538,9 +537,11 @@ int worker(char *addr)
             if(peach(&bt, sdiff, NULL, 1)) {
                wprintf("%sError: The Mochimo gods have rejected your share :(%s\n", RED, NRM);
             } else {
-               /* Mmmm... Nice haiku */
-               trigg_expand2(bt.nonce, haiku);
-               printf("\n%s\n\n", haiku);
+               if(Showhaiku) {
+                  /* Mmmm... Nice haiku */
+                  trigg_expand2(bt.nonce, haiku);
+                  printf("\n%s\n\n", haiku);
+               }
                /* Offer share to the Host */
                for(i = 4, j = 0; i > -1; i--) {
                   msping = getms();
@@ -552,18 +553,17 @@ int worker(char *addr)
                         /* add to total haikus */
                         haikus += (1 << sdiff);
                         /* calculate average haikurate over session */
-                        ahps = haikus / (time(NULL) - Stime);
+                        hps = haikus / (time(NULL) - Stime);
                         /* get haikurate metric */
                         for(i = 0; i < 4; i++) {
-                           if(ahps < 1000) break;
-                           ahps /= 1000;
+                           if(hps < 1000) break;
+                           hps /= 1000;
                         }
                      /* end Estimate Share Rate */
                      
-                     
                      /* Output share statistics */
                      wprintf("%sSuccess! | Shares: %u | Est. sRate "
-                             "%.02f %s [%lums]%s\n", GREEN, shares, ahps,
+                             "%.02f %s [%lums]%s\n", GREEN, shares, hps,
                              metric[i], msping, NRM);
                      break;
                   }
@@ -572,18 +572,19 @@ int worker(char *addr)
                if(i < 0)
                   wprintf("%sFailed to send share to host :(%s\n", RED, NRM);
             }
-               /* extra output */
-               if(Trace) {
-                  printf("  Sharediff=%u | Lseed2=0x%08X | Lseed3=0x%08X | Lseed4=0x%08X\n",
-                         sdiff, Lseed2, Lseed3, Lseed4);
-                  printf("  bt= ");
-                  for(i = 0; i < 124; i++) {
-                     if(i % 16 == 0 && i)
-                        printf("\n      ");
-                     printf("%02X ", ((byte *) &bt)[i]);
-                  }
-                  printf("...00\n");
+            /* extra output */
+            if(Trace) {
+               printf("  Sharediff=%u | "
+                      "Lseed2=0x%08X | Lseed3=0x%08X | Lseed4=0x%08X\n",
+                      sdiff, Lseed2, Lseed3, Lseed4);
+               printf("  bt= ");
+               for(i = 0; i < 124; i++) {
+                  if(i % 16 == 0 && i)
+                     printf("\n      ");
+                  printf("%02X ", ((byte *) &bt)[i]);
                }
+               printf("...00\n");
+            }
             /* reset solution */
             Blockfound = 0;
          }
@@ -593,7 +594,7 @@ int worker(char *addr)
    } /* end while(Running) */
 
    return VEOK;
-}
+} /* end worker() */
 
 
 void usage(void)
@@ -605,10 +606,10 @@ void usage(void)
           "         -dN        set difficulty to N\n"
           "         -wNAME     set worker name to NAME\n"
           "         -tN        set Trace to N (0, 1)\n"
-          "         -v         turn on verbosity\n"
           "         -l         open mochi.log file\n"
           "         -lFNAME    open log file FNAME\n"
           "         -e         enable error.log file\n"
+          "         --haiku    enable haiku output\n"
    );
    exit(0);
 }
@@ -639,9 +640,11 @@ int main(int argc, char **argv)
     * Set Defaults */
    Port = Dstport = PORT1; /* Default port 2095 */
    Interval = 20;          /* Default get_work() interval seconds */
-   Dynasleep = 10000;
-   Blockfound = 0;
+   Mining = 0;             /* Default not (yet) mining */
+   Showhaiku = 0;          /* Default avoid showing haiku :( */
    Difficulty = 0;         /* Default difficulty (0 = host) */
+   Dynasleep = 10000;      /* Default 10 ms */
+   Blockfound = 0;         /* Default share not (yet) found */
    Running = 1;
    
    
@@ -680,6 +683,9 @@ int main(int argc, char **argv)
                     break;
          case 'e':  Errorlog = 1;  /* enable "error.log" file */
                     break;
+         case '-':  if(strcmp(&argv[j][1], "-haiku") == 0)
+                       Showhaiku = 1;
+                    break;
          default:   usage();
       }  /* end switch */
    }  /* end for j */
@@ -693,23 +699,31 @@ int main(int argc, char **argv)
    
    /**
     * Introducing! */
-   printf("\n"
-          "          @@@@@@@@@          " BOLD  "  __  __         _    " BLUE "_" NRM "            __      __       _           \n" NRM
-          "       @@@   @@    @@@       " BOLD  " |  \\/  |___  __| |_ " BLUE "(_)" NRM "_ __  ___  \\ \\    / /__ _ _| |_____ _ _ \n" NRM
-          "    @@@     @@        @@@    " BOLD  " | |\\/| / _ \\/ _| ' \\| | '  \\/ _ \\  \\ \\/\\/ / _ \\ '_| / / -_) '_|\n" NRM
-          "   @@  @@@@@@@@@@@@@@@  @@   " BOLD  " |_|  |_\\___/\\__|_||_|_|_|_|_\\___/   \\_/\\_/\\___/_| |_\\_\\___|_|  \n" NRM
-          "  @@  @@   @@   @@   @@  @@  "       "  Copyright (c) 2019 Adequate Systems, LLC.  All rights reserved.\n"
-          " @@   @@   @@   @@   @@   @@ "       "  " VERSIONSTR "            Built on %s %s\n"
-          " @@   @@   @@   @@   @@   @@\n"
-          " @@   @@   @@   @@   @@   @@   " ULINE "Worker Settings" NRM "\n"
-          "  @@  @@   @@   @@   @@  @@  "       "  Connection" BLUE "..." NRM " %s:%hu\n"
-          "   @@@@@@@@@@@@@@@@@@@@@@@   "       "  Check work" BLUE "..." NRM " %u seconds\n"
-          "     @@@             @@@     "       "  Difficulty" BLUE "..." NRM " %u (%s)\n"
-          "        @@@@@@@@@@@@@\n\n"
+   printf(BOLD
+   "   __  __         _    " BLUE "_" NRM BOLD "            __      __       _\n"
+   "  |  \\/  |___  __| |_ " BLUE "(_)" NRM BOLD "_ __  ___  \\ \\    / /__ _ _| |_____ _ _\n"
+   "  | |\\/| / _ \\/ _| ' \\| | '  \\/ _ \\  \\ \\/\\/ / _ \\ '_| / / -_) '_|\n"
+   "  |_|  |_\\___/\\__|_||_|_|_|_|_\\___/   \\_/\\_/\\___/_| |_\\_\\___|_|\n" NRM
+   "                        Copyright (c) 2019 Adequate Systems, LLC.\n"
+   "           @@@@@@                            All rights reserved.\n"
+   "        @@@  @@  @@@\n"
+   "     @@@    @@      @@@    " BOLD "Worker~ %.32s%s\n" NRM
+   "    @@  @@@@@@@@@@@@  @@     BinBuiltOn" BLUE "..." NRM " %s %s\n"
+   "   @@  @@  @@  @@  @@  @@    BinVersion" BLUE "..." NRM " " VERSIONSTR "\n"
+   "   @@  @@  @@  @@  @@  @@    Connection" BLUE "..." NRM " %s:%hu\n"
+   "   @@  @@  @@  @@  @@  @@    Check work" BLUE "..." NRM " %u seconds\n"
+   "   @@  @@  @@  @@  @@  @@    Difficulty" BLUE "..." NRM " %u (%s)\n"
+   "    @@@@@@@@@@@@@@@@@@@@\n"
+   "      @@@          @@@     Starting up...\n"
+   "         @@@@@@@@@@\n\n",
+   Name ? Name : "", Name ? strlen(Name) > 32 ? "..." : "" : "",
+   __DATE__, __TIME__, Hostaddr, Port, Interval, Difficulty,
+   Difficulty == 255 ? "automatic" : Difficulty > 0 ? "manual" : "host");
 
-          "Initializing...\n\n", __DATE__, __TIME__, Hostaddr, Port, Interval, Difficulty,
-          Difficulty > 0 ? "manual" : "auto");
-
+   /**
+    * Enjoy the header for a moment */
+   sleep(2);
+   
    /**
     * Start the worker*/
    worker(Hostaddr);
