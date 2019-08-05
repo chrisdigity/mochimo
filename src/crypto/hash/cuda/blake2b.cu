@@ -13,18 +13,18 @@ extern "C"
 {
 typedef struct {
 
-    WORD digestlen;
-    BYTE key[64];
-    WORD keylen;
+    uint32_t digestlen;
+    uint8_t key[64];
+    uint32_t keylen;
 
-    BYTE buff[BLAKE2B_BLOCK_LENGTH];
+    uint8_t buff[BLAKE2B_BLOCK_LENGTH];
     int64_t chain[BLAKE2B_CHAIN_SIZE];
     int64_t state[BLAKE2B_STATE_SIZE];
 
-    WORD pos;
-    LONG t0;
-    LONG t1;
-    LONG f0;
+    uint32_t pos;
+    uint64_t t0;
+    uint64_t t1;
+    uint64_t f0;
 
 } cuda_blake2b_ctx_t;
 }
@@ -32,21 +32,21 @@ typedef cuda_blake2b_ctx_t CUDA_BLAKE2B_CTX;
 
 __constant__ CUDA_BLAKE2B_CTX c_CTX;
 
-__constant__ LONG BLAKE2B_IVS[8] =
+__constant__ uint64_t BLAKE2B_IVS[8] =
 {
         0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b,
         0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f,
         0x1f83d9abfb41bd6b, 0x5be0cd19137e2179
 };
 
-const LONG CPU_BLAKE2B_IVS[8] =
+const uint64_t CPU_BLAKE2B_IVS[8] =
 {
         0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b,
         0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f,
         0x1f83d9abfb41bd6b, 0x5be0cd19137e2179
 };
 
-void cpu_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keylen, WORD digestbitlen)
+void cpu_blake2b_init(cuda_blake2b_ctx_t *ctx, uint8_t* key, uint32_t keylen, uint32_t digestbitlen)
 {
     memset(ctx, 0, sizeof(cuda_blake2b_ctx_t));
     memcpy(ctx->buff, key, keylen);
@@ -73,7 +73,7 @@ void cpu_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keylen, WORD dige
 
 
 
-__constant__ unsigned char BLAKE2B_SIGMAS[12][16] =
+__constant__ uint8_t BLAKE2B_SIGMAS[12][16] =
 {
         { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
         { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
@@ -89,20 +89,20 @@ __constant__ unsigned char BLAKE2B_SIGMAS[12][16] =
         { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 }
 };
 
-__device__ LONG cuda_blake2b_leuint64(BYTE *in)
+__device__ uint64_t cuda_blake2b_leuint64(uint8_t *in)
 {
-    LONG a;
+    uint64_t a;
     memcpy(&a, in, 8);
     return a;
 
 /* If memory is not little endian
 BYTE *a = (BYTE *)in;
-return ((LONG)(a[0]) << 0) | ((LONG)(a[1]) << 8) | ((LONG)(a[2]) << 16) | ((LONG)(a[3]) << 24) |((LONG)(a[4]) << 32)
-    | ((LONG)(a[5]) << 40) | ((LONG)(a[6]) << 48) | 	((LONG)(a[7]) << 56);
+return ((uint64_t)(a[0]) << 0) | ((uint64_t)(a[1]) << 8) | ((uint64_t)(a[2]) << 16) | ((uint64_t)(a[3]) << 24) |((uint64_t)(a[4]) << 32)
+    | ((uint64_t)(a[5]) << 40) | ((uint64_t)(a[6]) << 48) | 	((uint64_t)(a[7]) << 56);
  */
 }
 
-__device__ LONG cuda_blake2b_ROTR64(LONG a, BYTE b)
+__device__ uint64_t cuda_blake2b_ROTR64(uint64_t a, uint8_t b)
 {
     return (a >> b) | (a << (64 - b));
 }
@@ -122,7 +122,7 @@ __device__ void cuda_blake2b_G(cuda_blake2b_ctx_t *ctx, int64_t m1, int64_t m2, 
 __device__ __forceinline__ void cuda_blake2b_init_state(cuda_blake2b_ctx_t *ctx)
 {
     memcpy(ctx->state, ctx->chain, BLAKE2B_CHAIN_LENGTH);
-    for (int i = 0; i < 4; i++)
+    for (int32_t i = 0; i < 4; i++)
         ctx->state[BLAKE2B_CHAIN_SIZE + i] = BLAKE2B_IVS[i];
 
     ctx->state[12] = ctx->t0 ^ BLAKE2B_IVS[4];
@@ -131,15 +131,15 @@ __device__ __forceinline__ void cuda_blake2b_init_state(cuda_blake2b_ctx_t *ctx)
     ctx->state[15] = BLAKE2B_IVS[7];
 }
 
-__device__ __forceinline__ void cuda_blake2b_compress(cuda_blake2b_ctx_t *ctx, BYTE* in, WORD inoffset)
+__device__ __forceinline__ void cuda_blake2b_compress(cuda_blake2b_ctx_t *ctx, uint8_t* in, uint32_t inoffset)
 {
     cuda_blake2b_init_state(ctx);
 
-    LONG  m[16] = {0};
-    for (int j = 0; j < 16; j++)
+    uint64_t  m[16] = {0};
+    for (int32_t j = 0; j < 16; j++)
         m[j] = cuda_blake2b_leuint64(in + inoffset + (j << 3));
 
-    for (int round = 0; round < BLAKE2B_ROUNDS; round++)
+    for (int32_t round = 0; round < BLAKE2B_ROUNDS; round++)
     {
         cuda_blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][0]], m[BLAKE2B_SIGMAS[round][1]], 0, 4, 8, 12);
         cuda_blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][2]], m[BLAKE2B_SIGMAS[round][3]], 1, 5, 9, 13);
@@ -151,11 +151,11 @@ __device__ __forceinline__ void cuda_blake2b_compress(cuda_blake2b_ctx_t *ctx, B
         cuda_blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][14]], m[BLAKE2B_SIGMAS[round][15]], 3, 4, 9, 14);
     }
 
-    for (int offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
+    for (int32_t offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
         ctx->chain[offset] = ctx->chain[offset] ^ ctx->state[offset] ^ ctx->state[offset + 8];
 }
 
-__device__ void cuda_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keylen, WORD digestbitlen)
+__device__ void cuda_blake2b_init(cuda_blake2b_ctx_t *ctx, uint8_t* key, uint32_t keylen, uint32_t digestbitlen)
 {
     memset(ctx, 0, sizeof(cuda_blake2b_ctx_t));
 
@@ -179,12 +179,12 @@ __device__ void cuda_blake2b_init(cuda_blake2b_ctx_t *ctx, BYTE* key, WORD keyle
     ctx->pos = BLAKE2B_BLOCK_LENGTH;
 }
 
-__device__ void cuda_blake2b_update(cuda_blake2b_ctx_t *ctx, BYTE* in, LONG inlen)
+__device__ void cuda_blake2b_update(cuda_blake2b_ctx_t *ctx, uint8_t* in, uint64_t inlen)
 {
     if (inlen == 0)
         return;
 
-    WORD start = 0;
+    uint32_t start = 0;
     int64_t in_index = 0, block_index = 0;
 
     if (ctx->pos)
@@ -220,9 +220,9 @@ __device__ void cuda_blake2b_update(cuda_blake2b_ctx_t *ctx, BYTE* in, LONG inle
     ctx->pos += inlen - in_index;
 }
 
-__device__ void cuda_blake2b_final(cuda_blake2b_ctx_t *ctx, BYTE* out)
+__device__ void cuda_blake2b_final(cuda_blake2b_ctx_t *ctx, uint8_t* out)
 {
-    ctx->f0 = 0xFFFFFFFFFFFFFFFFL;
+    ctx->f0 = 0xFFFFFFFFFFFFFFFFULL;
     ctx->t0 += ctx->pos;
     if (ctx->pos > 0 && ctx->t0 == 0)
         ctx->t1++;
@@ -231,10 +231,10 @@ __device__ void cuda_blake2b_final(cuda_blake2b_ctx_t *ctx, BYTE* out)
     memset(ctx->buff, 0, BLAKE2B_BLOCK_LENGTH);
     memset(ctx->state, 0, BLAKE2B_STATE_LENGTH);
 
-    int i8 = 0;
-    for (int i = 0; i < BLAKE2B_CHAIN_SIZE && ((i8 = i * 8) < ctx->digestlen); i++)
+    int32_t i8 = 0;
+    for (int32_t i = 0; i < BLAKE2B_CHAIN_SIZE && ((i8 = i * 8) < ctx->digestlen); i++)
     {
-        BYTE * BYTEs = (BYTE*)(&ctx->chain[i]);
+        uint8_t * BYTEs = (uint8_t*)(&ctx->chain[i]);
         if (i8 < ctx->digestlen - 8)
             memcpy(out + i8, BYTEs, 8);
         else
@@ -242,15 +242,15 @@ __device__ void cuda_blake2b_final(cuda_blake2b_ctx_t *ctx, BYTE* out)
     }
 }
 
-__global__ void kernel_blake2b_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_batch, WORD BLAKE2B_BLOCK_SIZE)
+__global__ void kernel_blake2b_hash(uint8_t* indata, uint32_t inlen, uint8_t* outdata, uint32_t n_batch, uint32_t BLAKE2B_BLOCK_SIZE)
 {
-    WORD thread = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t thread = blockIdx.x * blockDim.x + threadIdx.x;
     if (thread >= n_batch)
     {
         return;
     }
-    BYTE* in = indata  + thread * inlen;
-    BYTE* out = outdata  + thread * BLAKE2B_BLOCK_SIZE;
+    uint8_t* in = indata  + thread * inlen;
+    uint8_t* out = outdata  + thread * BLAKE2B_BLOCK_SIZE;
     CUDA_BLAKE2B_CTX ctx = c_CTX;
     //if not precomputed CTX, call cuda_blake2b_init() with key
     cuda_blake2b_update(&ctx, in, inlen);
@@ -258,10 +258,10 @@ __global__ void kernel_blake2b_hash(BYTE* indata, WORD inlen, BYTE* outdata, WOR
 }
 extern "C"
 {
-void mcm_cuda_blake2b_hash_batch(BYTE *key, WORD keylen, BYTE *in, WORD inlen, BYTE *out, WORD n_outbit, WORD n_batch) {
-    BYTE * cuda_indata;
-    BYTE * cuda_outdata;
-    const WORD BLAKE2B_BLOCK_SIZE = (n_outbit >> 3);
+void mcm_cuda_blake2b_hash_batch(uint8_t *key, uint32_t keylen, uint8_t *in, uint32_t inlen, uint8_t *out, uint32_t n_outbit, uint32_t n_batch) {
+    uint8_t * cuda_indata;
+    uint8_t * cuda_outdata;
+    const uint32_t BLAKE2B_BLOCK_SIZE = (n_outbit >> 3);
     cudaMalloc(&cuda_indata, inlen * n_batch);
     cudaMalloc(&cuda_outdata, BLAKE2B_BLOCK_SIZE * n_batch);
 
@@ -272,8 +272,8 @@ void mcm_cuda_blake2b_hash_batch(BYTE *key, WORD keylen, BYTE *in, WORD inlen, B
     cudaMemcpy(cuda_indata, in, inlen * n_batch, cudaMemcpyHostToDevice);
     cudaMemcpyToSymbol(c_CTX, &ctx, sizeof(CUDA_BLAKE2B_CTX), 0, cudaMemcpyHostToDevice);
 
-    WORD thread = 256;
-    WORD block = (n_batch + thread - 1) / thread;
+    uint32_t thread = 256;
+    uint32_t block = (n_batch + thread - 1) / thread;
 
     kernel_blake2b_hash << < block, thread >> > (cuda_indata, inlen, cuda_outdata, n_batch, BLAKE2B_BLOCK_SIZE);
     cudaMemcpy(out, cuda_outdata, BLAKE2B_BLOCK_SIZE * n_batch, cudaMemcpyDeviceToHost);

@@ -9,6 +9,8 @@
  *
  * This file is subject to the license as found in LICENSE.PDF
  *
+ * Changes: Data types have been changed to use the stdint.h types.
+ *
  */
 
 
@@ -17,7 +19,7 @@
 /*
  * Max keylen = 64
  */
-void blake2b_init(blake2b_ctx_t *ctx, byte* key, uint32_t keylen, uint32_t digestbitlen)
+void blake2b_init(blake2b_ctx_t *ctx, uint8_t* key, uint32_t keylen, uint32_t digestbitlen)
 {
    memset(ctx, 0, sizeof(blake2b_ctx_t));
 
@@ -41,7 +43,7 @@ void blake2b_init(blake2b_ctx_t *ctx, byte* key, uint32_t keylen, uint32_t diges
    ctx->pos = BLAKE2B_BLOCK_LENGTH;
 }
 
-void blake2b_update(blake2b_ctx_t *ctx, byte* in, uint64_t inlen)
+void blake2b_update(blake2b_ctx_t *ctx, uint8_t* in, uint64_t inlen)
 {
    if (inlen == 0)
       return;
@@ -82,9 +84,9 @@ void blake2b_update(blake2b_ctx_t *ctx, byte* in, uint64_t inlen)
       ctx->pos += inlen - in_index;
 }
 
-void blake2b_final(blake2b_ctx_t *ctx, byte* out)
+void blake2b_final(blake2b_ctx_t *ctx, uint8_t* out)
 {
-	ctx->f0 = 0xFFFFFFFFFFFFFFFFL;
+	ctx->f0 = 0xFFFFFFFFFFFFFFFFULL;
 	ctx->t0 += ctx->pos;
 	if (ctx->pos > 0 && ctx->t0 == 0)
 		ctx->t1++;
@@ -93,10 +95,10 @@ void blake2b_final(blake2b_ctx_t *ctx, byte* out)
 	memset(ctx->buff, 0, BLAKE2B_BLOCK_LENGTH);
 	memset(ctx->state, 0, BLAKE2B_STATE_LENGTH);
 	
-	int i8 = 0;
-	for (int i = 0; i < BLAKE2B_CHAIN_SIZE && ((i8 = i * 8) < ctx->digestlen); i++)
+	int32_t i8 = 0;
+	for (int32_t i = 0; i < BLAKE2B_CHAIN_SIZE && ((i8 = i * 8) < ctx->digestlen); i++)
 	{
-		byte * bytes = (byte*)(&ctx->chain[i]);
+		uint8_t * bytes = (uint8_t*)(&ctx->chain[i]);
 		if (i8 < ctx->digestlen - 8)
 		   memcpy(out + i8, bytes, 8);
 		else
@@ -107,7 +109,7 @@ void blake2b_final(blake2b_ctx_t *ctx, byte* out)
 void blake2b_init_state(blake2b_ctx_t *ctx)
 {
 	memcpy(ctx->state, ctx->chain, BLAKE2B_CHAIN_LENGTH);
-	for (int i = 0; i < 4; i++)
+	for (int32_t i = 0; i < 4; i++)
 		ctx->state[BLAKE2B_CHAIN_SIZE + i] = BLAKE2B_IVS[i];
 
 	ctx->state[12] = ctx->t0 ^ BLAKE2B_IVS[4];
@@ -116,15 +118,15 @@ void blake2b_init_state(blake2b_ctx_t *ctx)
 	ctx->state[15] = BLAKE2B_IVS[7];
 }
 
-void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset)
+void blake2b_compress(blake2b_ctx_t *ctx, uint8_t* in, uint32_t inoffset)
 {
    blake2b_init_state(ctx);
 
    uint64_t  m[16] = {0};
-   for (int j = 0; j < 16; j++)
+   for (int32_t j = 0; j < 16; j++)
       m[j] = blake2b_leuint64(in + inoffset + (j << 3));
 	
-   for (int round = 0; round < BLAKE2B_ROUNDS; round++)
+   for (int32_t round = 0; round < BLAKE2B_ROUNDS; round++)
    {
       blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][0]], m[BLAKE2B_SIGMAS[round][1]], 0, 4, 8, 12);
       blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][2]], m[BLAKE2B_SIGMAS[round][3]], 1, 5, 9, 13);
@@ -136,11 +138,11 @@ void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset)
       blake2b_G(ctx, m[BLAKE2B_SIGMAS[round][14]], m[BLAKE2B_SIGMAS[round][15]], 3, 4, 9, 14);
    }
 
-   for (int offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
+   for (int32_t offset = 0; offset < BLAKE2B_CHAIN_SIZE; offset++)
       ctx->chain[offset] = ctx->chain[offset] ^ ctx->state[offset] ^ ctx->state[offset + 8];
 }
 
-uint64_t blake2b_leuint64(byte *in)
+uint64_t blake2b_leuint64(uint8_t *in)
 {
    uint64_t a;
    a = *((uint64_t *)in);

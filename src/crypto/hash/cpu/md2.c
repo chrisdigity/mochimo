@@ -7,6 +7,7 @@
 				  Algorithm specification can be found here:
 				   * http://tools.ietf.org/html/rfc1319 .
               Input is  little endian byte order.
+* Changes:    Data types have been changed to use the stdint.h types.
 *********************************************************************/
 
 /*************************** HEADER FILES ***************************/
@@ -15,7 +16,7 @@
 #include "md2.h"
 
 /**************************** VARIABLES *****************************/
-static const BYTE s[256] = {
+static const uint8_t s[256] = {
 	41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6,
 	19, 98, 167, 5, 243, 192, 199, 115, 140, 152, 147, 43, 217, 188,
 	76, 130, 202, 30, 155, 87, 60, 253, 212, 224, 22, 103, 66, 111, 24,
@@ -37,9 +38,9 @@ static const BYTE s[256] = {
 };
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-void md2_transform(MD2_CTX *ctx, BYTE data[])
+void md2_transform(MD2_CTX *ctx, uint8_t data[])
 {
-	int j,k,t;
+	int32_t j,k,t;
 
 	//memcpy(&ctx->state[16], data);
 	for (j=0; j < 16; ++j) {
@@ -65,7 +66,7 @@ void md2_transform(MD2_CTX *ctx, BYTE data[])
 
 void md2_init(MD2_CTX *ctx)
 {
-	int i;
+	int32_t i;
 
 	for (i=0; i < 48; ++i)
 		ctx->state[i] = 0;
@@ -74,7 +75,7 @@ void md2_init(MD2_CTX *ctx)
 	ctx->len = 0;
 }
 
-void md2_update(MD2_CTX *ctx, const BYTE data[], size_t len)
+void md2_update(MD2_CTX *ctx, const uint8_t data[], size_t len)
 {
 	size_t i;
 
@@ -88,9 +89,9 @@ void md2_update(MD2_CTX *ctx, const BYTE data[], size_t len)
 	}
 }
 
-void md2_final(MD2_CTX *ctx, BYTE hash[])
+void md2_final(MD2_CTX *ctx, uint8_t hash[])
 {
-	int to_pad;
+	int32_t to_pad;
 
 	to_pad = MD2_BLOCK_SIZE - ctx->len;
 

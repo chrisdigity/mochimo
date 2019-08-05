@@ -9,6 +9,8 @@
  *
  * This file is subject to the license as found in LICENSE.PDF
  *
+ * Changes: Data types have been changed to use the stdint.h types.
+ *
  */
 #include "keccak.h"
 
@@ -35,7 +37,7 @@ void keccak_sha3_init(keccak_ctx_t *ctx, uint32_t digestbitlen)
    ctx->sha3_flag = 1;
 }
 
-void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen)
+void keccak_update(keccak_ctx_t *ctx, uint8_t *in, uint64_t inlen)
 {
    int64_t bytes = ctx->bits_in_queue >> 3;
    int64_t count = 0;
@@ -61,11 +63,11 @@ void keccak_update(keccak_ctx_t *ctx, byte *in, uint64_t inlen)
    ctx->bits_in_queue = bytes << 3;
 }
 
-void keccak_final(keccak_ctx_t *ctx, byte *out)
+void keccak_final(keccak_ctx_t *ctx, uint8_t *out)
 {
    if (ctx->sha3_flag) {
-      int mask = (1 << 2) - 1;
-      ctx->q[ctx->bits_in_queue >> 3] = (byte)(0x02 & mask);
+      int32_t mask = (1 << 2) - 1;
+      ctx->q[ctx->bits_in_queue >> 3] = (uint8_t)(0x02 & mask);
       ctx->bits_in_queue += 2;
    }
 
@@ -88,7 +90,7 @@ void keccak_final(keccak_ctx_t *ctx, byte *out)
 
 void keccak_pad(keccak_ctx_t *ctx)
 {
-   ctx->q[ctx->bits_in_queue >> 3] |= (1L << (ctx->bits_in_queue & 7));
+   ctx->q[ctx->bits_in_queue >> 3] |= (1LL << (ctx->bits_in_queue & 7));
 
    if (++(ctx->bits_in_queue) == ctx->rate_bits) {
       keccak_absorb(ctx, ctx->q);
@@ -99,13 +101,13 @@ void keccak_pad(keccak_ctx_t *ctx)
    uint64_t partial = ctx->bits_in_queue & 63;
 
    uint64_t offset = 0;
-   for (int i = 0; i < full; ++i) {
+   for (int32_t i = 0; i < full; ++i) {
       ctx->state[i] ^= keccak_leuint64(ctx->q + offset);
       offset += 8;
    }
 
    if (partial > 0) {
-      uint64_t mask = (1L << partial) - 1;
+      uint64_t mask = (1LL << partial) - 1;
       ctx->state[full] ^= keccak_leuint64(ctx->q + offset) & mask;
    }
 
@@ -138,7 +140,7 @@ uint64_t keccak_leuint64(void *in)
    return a;
 }
 
-void keccak_absorb(keccak_ctx_t *ctx, byte* in) 
+void keccak_absorb(keccak_ctx_t *ctx, uint8_t* in) 
 {
 	
    uint64_t offset = 0;
@@ -154,9 +156,9 @@ void keccak_extract(keccak_ctx_t *ctx)
 {
    uint64_t len = ctx->rate_bits >> 6;
    int64_t a;
-   int s = sizeof(uint64_t);
+   int32_t s = sizeof(uint64_t);
    
-   for (int i = 0;i < len;i++) {
+   for (int32_t i = 0;i < len;i++) {
       a = keccak_leuint64((int64_t*)&ctx->state[i]);
       memcpy(ctx->q + (i * s), &a, s);
    }
@@ -173,7 +175,7 @@ void keccak_permutations(keccak_ctx_t * ctx)
    int64_t *a15 = A + 15, *a16 = A + 16, *a17 = A + 17, *a18 = A + 18, *a19 = A + 19;
    int64_t *a20 = A + 20, *a21 = A + 21, *a22 = A + 22, *a23 = A + 23, *a24 = A + 24;
 
-   for (int i = 0; i < KECCAK_ROUND; i++) {
+   for (int32_t i = 0; i < KECCAK_ROUND; i++) {
 		
       /* Theta */
       int64_t c0 = *a00 ^ *a05 ^ *a10 ^ *a15 ^ *a20;

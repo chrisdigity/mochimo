@@ -7,6 +7,7 @@
 				  Algorithm specification can be found here:
 				   * http://tools.ietf.org/html/rfc1321
 				  This implementation uses little endian byte order.
+* Changes:    Data types have been changed to use the stdint.h types.
 *********************************************************************/
 
 /*************************** HEADER FILES ***************************/
@@ -34,9 +35,9 @@
                             a = b + ROTLEFT(a,s); }
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-void md5_transform(MD5_CTX *ctx, const BYTE data[])
+void md5_transform(MD5_CTX *ctx, const uint8_t data[])
 {
-	WORD a, b, c, d, m[16], i, j;
+	uint32_t a, b, c, d, m[16], i, j;
 
 	// MD5 specifies big endian byte order, but this implementation assumes a little
 	// endian byte order CPU. Reverse all the bytes upon input, and re-reverse them
@@ -133,7 +134,7 @@ void md5_init(MD5_CTX *ctx)
 	ctx->state[3] = 0x10325476;
 }
 
-void md5_update(MD5_CTX *ctx, const BYTE data[], size_t len)
+void md5_update(MD5_CTX *ctx, const uint8_t data[], size_t len)
 {
 	size_t i;
 
@@ -148,7 +149,7 @@ void md5_update(MD5_CTX *ctx, const BYTE data[], size_t len)
 	}
 }
 
-void md5_final(MD5_CTX *ctx, BYTE hash[])
+void md5_final(MD5_CTX *ctx, uint8_t hash[])
 {
 	size_t i;
 

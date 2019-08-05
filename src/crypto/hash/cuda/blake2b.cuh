@@ -14,4 +14,4 @@
 
 #pragma once
 #include "config.h"
-void mcm_cuda_blake2b_hash_batch(BYTE* key, WORD keylen, BYTE * in, WORD inlen, BYTE * out, WORD n_outbit, WORD n_batch);
+void mcm_cuda_blake2b_hash_batch(uint8_t* key, uint32_t keylen, uint8_t * in, uint32_t inlen, uint8_t * out, uint32_t n_outbit, uint32_t n_batch);

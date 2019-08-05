@@ -27,14 +27,14 @@ extern "C" {
 #define MD2_BLOCK_SIZE 16
 /**************************** STRUCT ********************************/
 typedef struct {
-	BYTE data[16];
-	BYTE state[48];
-	BYTE checksum[16];
-	int len;
+	uint8_t data[16];
+	uint8_t state[48];
+	uint8_t checksum[16];
+	int32_t len;
 } CUDA_MD2_CTX;
 
 /**************************** VARIABLES *****************************/
-__constant__ BYTE s[256] = {
+__constant__ uint8_t s[256] = {
 	41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6,
 	19, 98, 167, 5, 243, 192, 199, 115, 140, 152, 147, 43, 217, 188,
 	76, 130, 202, 30, 155, 87, 60, 253, 212, 224, 22, 103, 66, 111, 24,
@@ -56,9 +56,9 @@ __constant__ BYTE s[256] = {
 };
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__ void cuda_md2_transform(CUDA_MD2_CTX *ctx, BYTE data[])
+__device__ void cuda_md2_transform(CUDA_MD2_CTX *ctx, uint8_t data[])
 {
-	int j,k,t;
+	int32_t j,k,t;
 
 	//memcpy(&ctx->state[16], data);
 	for (j=0; j < 16; ++j) {
@@ -84,7 +84,7 @@ __device__ void cuda_md2_transform(CUDA_MD2_CTX *ctx, BYTE data[])
 
 __device__ void cuda_md2_init(CUDA_MD2_CTX *ctx)
 {
-	int i;
+	int32_t i;
 
 	for (i=0; i < 48; ++i)
 		ctx->state[i] = 0;
@@ -93,7 +93,7 @@ __device__ void cuda_md2_init(CUDA_MD2_CTX *ctx)
 	ctx->len = 0;
 }
 
-__device__ void cuda_md2_update(CUDA_MD2_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_md2_update(CUDA_MD2_CTX *ctx, const uint8_t data[], size_t len)
 {
 	size_t i;
 
@@ -107,9 +107,9 @@ __device__ void cuda_md2_update(CUDA_MD2_CTX *ctx, const BYTE data[], size_t len
 	}
 }
 
-__device__ void cuda_md2_final(CUDA_MD2_CTX *ctx, BYTE hash[])
+__device__ void cuda_md2_final(CUDA_MD2_CTX *ctx, uint8_t hash[])
 {
-	int to_pad;
+	int32_t to_pad;
 
 	to_pad = MD2_BLOCK_SIZE - ctx->len;
 
@@ -122,30 +122,30 @@ __device__ void cuda_md2_final(CUDA_MD2_CTX *ctx, BYTE hash[])
 	memcpy(hash, ctx->state, MD2_BLOCK_SIZE);
 }
 
-__global__ void kernel_md2_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_batch)
+__global__ void kernel_md2_hash(uint8_t* indata, uint32_t inlen, uint8_t* outdata, uint32_t n_batch)
 {
-	WORD thread = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t thread = blockIdx.x * blockDim.x + threadIdx.x;
 	if (thread >= n_batch)
 	{
 		return;
 	}
-	BYTE* in = indata  + thread * inlen;
-	BYTE* out = outdata  + thread * MD2_BLOCK_SIZE;
+	uint8_t* in = indata  + thread * inlen;
+	uint8_t* out = outdata  + thread * MD2_BLOCK_SIZE;
 	CUDA_MD2_CTX ctx;
 	cuda_md2_init(&ctx);
 	cuda_md2_update(&ctx, in, inlen);
 	cuda_md2_final(&ctx, out);
 }
 extern "C" {
-void mcm_cuda_md2_hash_batch(BYTE *in, WORD inlen, BYTE *out, WORD n_batch) {
-	BYTE *cuda_indata;
-	BYTE *cuda_outdata;
+void mcm_cuda_md2_hash_batch(uint8_t *in, uint32_t inlen, uint8_t *out, uint32_t n_batch) {
+	uint8_t *cuda_indata;
+	uint8_t *cuda_outdata;
 	cudaMalloc(&cuda_indata, inlen * n_batch);
 	cudaMalloc(&cuda_outdata, MD2_BLOCK_SIZE * n_batch);
 	cudaMemcpy(cuda_indata, in, inlen * n_batch, cudaMemcpyHostToDevice);
 
-	WORD thread = 256;
-	WORD block = (n_batch + thread - 1) / thread;
+	uint32_t thread = 256;
+	uint32_t block = (n_batch + thread - 1) / thread;
 
 	kernel_md2_hash << < block, thread >> > (cuda_indata, inlen, cuda_outdata, n_batch);
 	cudaMemcpy(out, cuda_outdata, MD2_BLOCK_SIZE * n_batch, cudaMemcpyDeviceToHost);

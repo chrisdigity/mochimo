@@ -29,11 +29,11 @@ extern "C" {
 
 /**************************** DATA TYPES ****************************/
 typedef struct {
-	BYTE data[64];
-	WORD datalen;
-	unsigned long long bitlen;
-	WORD state[5];
-	WORD k[4];
+	uint8_t data[64];
+	uint32_t datalen;
+	uint64_t bitlen;
+	uint32_t state[5];
+	uint32_t k[4];
 } CUDA_SHA1_CTX;
 
 /****************************** MACROS ******************************/
@@ -42,9 +42,9 @@ typedef struct {
 #endif
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__  __forceinline__ void cuda_sha1_transform(CUDA_SHA1_CTX *ctx, const BYTE data[])
+__device__  __forceinline__ void cuda_sha1_transform(CUDA_SHA1_CTX *ctx, const uint8_t data[])
 {
-	WORD a, b, c, d, e, i, j, t, m[80];
+	uint32_t a, b, c, d, e, i, j, t, m[80];
 
 	for (i = 0, j = 0; i < 16; ++i, j += 4)
 		m[i] = (data[j] << 24) + (data[j + 1] << 16) + (data[j + 2] << 8) + (data[j + 3]);
@@ -114,7 +114,7 @@ __device__ void cuda_sha1_init(CUDA_SHA1_CTX *ctx)
 	ctx->k[3] = 0xca62c1d6;
 }
 
-__device__ void cuda_sha1_update(CUDA_SHA1_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_sha1_update(CUDA_SHA1_CTX *ctx, const uint8_t data[], size_t len)
 {
 	size_t i;
 
@@ -129,9 +129,9 @@ __device__ void cuda_sha1_update(CUDA_SHA1_CTX *ctx, const BYTE data[], size_t l
 	}
 }
 
-__device__ void cuda_sha1_final(CUDA_SHA1_CTX *ctx, BYTE hash[])
+__device__ void cuda_sha1_final(CUDA_SHA1_CTX *ctx, uint8_t hash[])
 {
-	WORD i;
+	uint32_t i;
 
 	i = ctx->datalen;
 
@@ -172,15 +172,15 @@ __device__ void cuda_sha1_final(CUDA_SHA1_CTX *ctx, BYTE hash[])
 	}
 }
 
-__global__ void kernel_sha1_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_batch)
+__global__ void kernel_sha1_hash(uint8_t* indata, uint32_t inlen, uint8_t* outdata, uint32_t n_batch)
 {
-	WORD thread = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t thread = blockIdx.x * blockDim.x + threadIdx.x;
 	if (thread >= n_batch)
 	{
 		return;
 	}
-	BYTE* in = indata  + thread * inlen;
-	BYTE* out = outdata  + thread * SHA1_BLOCK_SIZE;
+	uint8_t* in = indata  + thread * inlen;
+	uint8_t* out = outdata  + thread * SHA1_BLOCK_SIZE;
 	CUDA_SHA1_CTX ctx;
 	cuda_sha1_init(&ctx);
 	cuda_sha1_update(&ctx, in, inlen);
@@ -189,16 +189,16 @@ __global__ void kernel_sha1_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n
 
 extern "C"
 {
-void mcm_cuda_sha1_hash_batch(BYTE* in, WORD inlen, BYTE* out, WORD n_batch)
+void mcm_cuda_sha1_hash_batch(uint8_t* in, uint32_t inlen, uint8_t* out, uint32_t n_batch)
 {
-	BYTE *cuda_indata;
-	BYTE *cuda_outdata;
+	uint8_t *cuda_indata;
+	uint8_t *cuda_outdata;
 	cudaMalloc(&cuda_indata, inlen * n_batch);
 	cudaMalloc(&cuda_outdata, SHA1_BLOCK_SIZE * n_batch);
 	cudaMemcpy(cuda_indata, in, inlen * n_batch, cudaMemcpyHostToDevice);
 
-	WORD thread = 256;
-	WORD block = (n_batch + thread - 1) / thread;
+	uint32_t thread = 256;
+	uint32_t block = (n_batch + thread - 1) / thread;
 
 	kernel_sha1_hash << < block, thread >> > (cuda_indata, inlen, cuda_outdata, n_batch);
 	cudaMemcpy(out, cuda_outdata, SHA1_BLOCK_SIZE * n_batch, cudaMemcpyDeviceToHost);

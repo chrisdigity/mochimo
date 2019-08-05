@@ -9,15 +9,13 @@
  *
  * This file is subject to the license as found in LICENSE.PDF
  *
+ * Changes: Data types have been changed to use the stdint.h types.
+ *
  */
 
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-
-#ifndef byte
-typedef unsigned char byte;
-#endif
 
 #ifndef BLAKE2B_H
 #define BLAKE2B_H
@@ -37,7 +35,7 @@ static const uint64_t BLAKE2B_IVS[8] =
 	0x1f83d9abfb41bd6b, 0x5be0cd19137e2179
 };
 
-static const unsigned char BLAKE2B_SIGMAS[12][16] =
+static const uint8_t BLAKE2B_SIGMAS[12][16] =
 {
 	{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
 	{ 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
@@ -56,10 +54,10 @@ static const unsigned char BLAKE2B_SIGMAS[12][16] =
 typedef struct {
 
    uint32_t digestlen;
-   byte *key;
+   uint8_t *key;
    uint32_t keylen;
 
-   byte buff[BLAKE2B_BLOCK_LENGTH];
+   uint8_t buff[BLAKE2B_BLOCK_LENGTH];
    int64_t chain[BLAKE2B_CHAIN_SIZE];
    int64_t state[BLAKE2B_STATE_SIZE];
 	
@@ -71,12 +69,12 @@ typedef struct {
 } blake2b_ctx_t;
 typedef blake2b_ctx_t BLAKE2B_CTX;
 
-void blake2b_init(blake2b_ctx_t *ctx, byte* key, uint32_t keylen, uint32_t digestbitlen);
-void blake2b_update(blake2b_ctx_t *ctx, byte* in, uint64_t inlen);
-void blake2b_final(blake2b_ctx_t *ctx, byte* out);
+void blake2b_init(blake2b_ctx_t *ctx, uint8_t* key, uint32_t keylen, uint32_t digestbitlen);
+void blake2b_update(blake2b_ctx_t *ctx, uint8_t* in, uint64_t inlen);
+void blake2b_final(blake2b_ctx_t *ctx, uint8_t* out);
 void blake2b_init_state(blake2b_ctx_t *ctx);
-void blake2b_compress(blake2b_ctx_t *ctx, byte* in, uint32_t inoffset);
-uint64_t blake2b_leuint64(byte *in);
+void blake2b_compress(blake2b_ctx_t *ctx, uint8_t* in, uint32_t inoffset);
+uint64_t blake2b_leuint64(uint8_t *in);
 uint64_t blake2b_ROTR64(uint64_t a, uint8_t b);
 void blake2b_G(blake2b_ctx_t *ctx, int64_t m1, int64_t m2, int32_t a, int32_t b, int32_t c, int32_t d);
 

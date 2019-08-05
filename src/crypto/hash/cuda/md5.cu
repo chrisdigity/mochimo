@@ -26,14 +26,11 @@ extern "C" {
 #define MD5_BLOCK_SIZE 16               // MD5 outputs a 16 byte digest
 
 /**************************** DATA TYPES ****************************/
-typedef unsigned char BYTE;             // 8-bit byte
-typedef unsigned int  WORD;             // 32-bit word, change to "long" for 16-bit machines
-
 typedef struct {
-	BYTE data[64];
-	WORD datalen;
-	unsigned long long bitlen;
-	WORD state[4];
+	uint8_t data[64];
+	uint32_t datalen;
+	uint64_t bitlen;
+	uint32_t state[4];
 } CUDA_MD5_CTX;
 
 /****************************** MACROS ******************************/
@@ -56,9 +53,9 @@ typedef struct {
                             a = b + ROTLEFT(a,s); }
 
 /*********************** FUNCTION DEFINITIONS ***********************/
-__device__ void cuda_md5_transform(CUDA_MD5_CTX *ctx, const BYTE data[])
+__device__ void cuda_md5_transform(CUDA_MD5_CTX *ctx, const uint8_t data[])
 {
-	WORD a, b, c, d, m[16], i, j;
+	uint32_t a, b, c, d, m[16], i, j;
 
 	// MD5 specifies big endian byte order, but this implementation assumes a little
 	// endian byte order CPU. Reverse all the bytes upon input, and re-reverse them
@@ -155,7 +152,7 @@ __device__ void cuda_md5_init(CUDA_MD5_CTX *ctx)
 	ctx->state[3] = 0x10325476;
 }
 
-__device__ void cuda_md5_update(CUDA_MD5_CTX *ctx, const BYTE data[], size_t len)
+__device__ void cuda_md5_update(CUDA_MD5_CTX *ctx, const uint8_t data[], size_t len)
 {
 	size_t i;
 
@@ -170,7 +167,7 @@ __device__ void cuda_md5_update(CUDA_MD5_CTX *ctx, const BYTE data[], size_t len
 	}
 }
 
-__device__ void cuda_md5_final(CUDA_MD5_CTX *ctx, BYTE hash[])
+__device__ void cuda_md5_final(CUDA_MD5_CTX *ctx, uint8_t hash[])
 {
 	size_t i;
 
@@ -212,15 +209,15 @@ __device__ void cuda_md5_final(CUDA_MD5_CTX *ctx, BYTE hash[])
 	}
 }
 
-__global__ void kernel_md5_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_batch)
+__global__ void kernel_md5_hash(uint8_t* indata, uint32_t inlen, uint8_t* outdata, uint32_t n_batch)
 {
-	WORD thread = blockIdx.x * blockDim.x + threadIdx.x;
+	uint32_t thread = blockIdx.x * blockDim.x + threadIdx.x;
 	if (thread >= n_batch)
 	{
 		return;
 	}
-	BYTE* in = indata  + thread * inlen;
-	BYTE* out = outdata  + thread * MD5_BLOCK_SIZE;
+	uint8_t* in = indata  + thread * inlen;
+	uint8_t* out = outdata  + thread * MD5_BLOCK_SIZE;
 	CUDA_MD5_CTX ctx;
 	cuda_md5_init(&ctx);
 	cuda_md5_update(&ctx, in, inlen);
@@ -229,16 +226,16 @@ __global__ void kernel_md5_hash(BYTE* indata, WORD inlen, BYTE* outdata, WORD n_
 
 extern "C"
 {
-void mcm_cuda_md5_hash_batch(BYTE* in, WORD inlen, BYTE* out, WORD n_batch)
+void mcm_cuda_md5_hash_batch(uint8_t* in, uint32_t inlen, uint8_t* out, uint32_t n_batch)
 {
-	BYTE *cuda_indata;
-	BYTE *cuda_outdata;
+	uint8_t *cuda_indata;
+	uint8_t *cuda_outdata;
 	cudaMalloc(&cuda_indata, inlen * n_batch);
 	cudaMalloc(&cuda_outdata, MD5_BLOCK_SIZE * n_batch);
 	cudaMemcpy(cuda_indata, in, inlen * n_batch, cudaMemcpyHostToDevice);
 
-	WORD thread = 256;
-	WORD block = (n_batch + thread - 1) / thread;
+	uint32_t thread = 256;
+	uint32_t block = (n_batch + thread - 1) / thread;
 
 	kernel_md5_hash << < block, thread >> > (cuda_indata, inlen, cuda_outdata, n_batch);
 	cudaMemcpy(out, cuda_outdata, MD5_BLOCK_SIZE * n_batch, cudaMemcpyDeviceToHost);
