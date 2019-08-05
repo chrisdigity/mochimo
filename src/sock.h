@@ -10,11 +10,20 @@
 /* #define FD_SETSIZE  (MAXNODES+1)   * include listening socket */
 
 #ifdef WIN32
+#pragma comment(lib, "Ws2_32.lib")
 #include <winsock.h>
+#ifndef EISCONN
 #define EISCONN      WSAEISCONN
+#endif
+#ifndef EINPROGRESS
 #define EINPROGRESS  WSAEINPROGRESS 
+#endif
+#ifndef EALREADY
 #define EALREADY     WSAEALREADY 
+#endif
+#ifndef EWOULDBLOCK
 #define EWOULDBLOCK  WSAEWOULDBLOCK
+#endif
 #define getsockerr() WSAGetLastError()
 #else
 #include <fcntl.h>

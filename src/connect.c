@@ -29,9 +29,15 @@ SOCKET connectip(word32 ip)
    timeout = time(NULL) + 3;
 retry:
    if(connect(sd, (struct sockaddr *) &addr, sizeof(struct sockaddr))) {
+#ifdef WIN32
+      errno = getsockerr();
+      if(errno == WSAEISCONN) return sd;
+      if(time(NULL) < timeout && Running) goto retry;
+#else
       if(errno == EISCONN) return sd;
       if((errno == EINPROGRESS || errno == EALREADY)
          && time(NULL) < timeout) goto retry;
+#endif /* Not WIN32 */
       closesocket(sd);
       if(Trace) plog("connectip(): cannot connect(0x%08x):%d.", ip, port);
       return INVALID_SOCKET;

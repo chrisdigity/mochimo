@@ -31,7 +31,7 @@ int rx2(NODE *np, int checkids, int seconds)
       if(count == 0) return VERROR;
       if(count < 0) {
          if(time(NULL) >= timeout) return VETIMEOUT;
-         usleep(10);
+         msleep(1);
          continue;
       }
       n += count;

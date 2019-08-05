@@ -7,6 +7,91 @@
  *
  * TCP support code.
 */
+#include "util.h"
+
+#ifdef WIN32 /* Assume Windows system */
+
+/* Define WIN32_LEAN_AND_MEAN and setup trigger to return definition to it's
+ * original state to reduce undesired effects in the remaining codebase */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#define UNDEF_LEAN_AND_MEAN
+#endif /* Not WIN32_LEAN_AND_MEAN */
+#include <windows.h>
+#ifdef UNDEF_LEAN_AND_MEAN
+#undef WIN32_LEAN_AND_MEAN
+#undef UNDEF_LEAN_AND_MEAN
+#endif /* UNDEF_LEAN_AND_MEAN */
+
+#else /* Assume UNIXLIKE system */
+
+#include <sys/time.h>
+
+#ifdef _POSIX_C_SOURCE >= 199309L
+#include <time.h>   /* for nanosleep */
+#else
+#include <unistd.h> /* for usleep */
+#endif
+
+#endif /* UNIXLIKE system */
+
+
+/* Cross platform uninterruptible sleep function */
+void msleep(uint32_t ms)
+{
+#ifdef WIN32 /* Assume Windows system */
+
+   Sleep(ms);
+
+#elif _POSIX_C_SOURCE >= 199309L
+
+   uint32_t res;
+   struct timespec ts;
+   ts.tv_sec = ms / 1000;
+   ts.tv_nsec = (ms % 1000) * 1000000L;
+   do {
+      res = nanosleep(&ts, %ts);
+   } while(res);
+
+#else /* Assume older UNIXLIKE system */
+
+   usleep(ms * 1000);
+
+#endif
+}
+
+
+/* Cross platform millisecond timestamp */
+uint64_t timestamp_ms(void)
+{
+   uint64_t ms;
+
+#ifdef WIN32 /* Assume Windows system */
+
+   FILETIME ft;
+   GetSystemTimePreciseAsFileTime(&ft);
+
+   /* FILETIME is represented in 100ns intervals by 2 DWORD's (hi & lo order)
+    * Divide by 10,000 to get milliseconds */
+   ms = ft.dwHighDateTime;
+   ms = ms << 32;
+   ms = ms | ft.dwLowDateTime;
+   ms = ms / 10000;
+
+#else /* Assume UNIXLIKE system */
+
+   struct timeval tv;
+   gettimeofday(&tv, NULL);
+
+   /* timeval holds seconds and microseconds seperately
+    * Divide microseconds by 1,000 and add to seconds */
+   ms = tv.tv_sec * 1000ULL;
+   ms = ms + (tv.tv_usec / 1000);
+
+#endif /* Not WIN32 */
+
+   return ms;
+}
 
 
 void swap32(void *val)
@@ -333,6 +418,31 @@ char *bnum2hex(byte *bnum)
 }
 
 
+/* Converts 8 bytes of little endian data into a hexadecimal
+ * character array without extraneous Zeroes.
+ * Always writes the first byte of data & preceeding '0x' */
+char *bnum2hex_short(byte *bnum)
+{
+   static char buff[20];
+   char next[3] = "0x";
+   int pos = 7;
+   
+   /* begin buff with "0x" */
+   buff[0] = '\0';
+   strcat(buff, "0x");
+   /* work backwards to find first value */
+   while(bnum[pos] == 0 && pos > 0) pos--;
+   /* convert/Store remaining data */
+   while(pos >= 0) {
+      sprintf(next, "%02x", bnum[pos]);
+      strcat(buff, next);
+      pos--;
+   }
+
+   return buff;
+}
+
+
 char *addr2str(byte *addr)
 {
    static char str[10];
@@ -553,6 +663,8 @@ out:
 }  /* end get_mreward() */
 
 
+#ifndef WIN32 /* Windows variants of lock() and unlock() not yet available */
+
 /* Get exclusive lock on lockfile.
  * Returns: -1 if lock not made within 'seconds'
  *          else a descriptor to be used with unlock()
@@ -585,6 +697,8 @@ int unlock(int fd)
    close(fd);
    return status;
 }
+
+#endif /* Not WIN32 */
 
 
 int append_tfile(char *fname, char *tfile)
