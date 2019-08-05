@@ -11,7 +11,18 @@
  *
  */
 
-#define HASHLENMID 	                   16
+#ifndef PEACH_H
+#define PEACH_H
+
+#ifndef MAX_GPUS
+#define MAX_GPUS 64
+#endif
+#ifndef MAX_SEEDS
+#define MAX_SEEDS 1024
+#endif
+
+/* Algo Definitions */
+#define HASHLENMID                     16
 #define HASHLEN                        32
 #define TILE_ROWS                      32
 #define TILE_LENGTH (TILE_ROWS * HASHLEN)
@@ -21,3 +32,26 @@
 #define JUMP                            8
 
 #define PEACH_DEBUG                     0
+
+#include <stdint.h>
+#include "../../config.h"
+
+#ifdef __cplusplus
+extern "C" { /* For CUDA compatibility */
+#endif
+
+typedef struct __peach_hps {
+   /* device hashrate calculations */
+   uint64_t t_start;
+   uint64_t t_end;
+   uint32_t ahps;
+   uint32_t hps[3];
+   uint8_t hps_index;
+} PeachHPS;
+extern PeachHPS peach_hps[MAX_GPUS];
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* Not PEACH_H */

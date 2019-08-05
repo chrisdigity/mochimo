@@ -9,26 +9,38 @@
  * Revised: 28 April 2019
 */
 
-/* Terminal Beautify */
-#define NRM     "\x1B[0m"
-#define BOLD    "\x1B[1m"  /* decoration */
-#define DIM     "\x1B[2m" 
-#define ULINE   "\x1B[4m" 
-#define BLINK   "\x1B[5m" 
-#define RED     "\x1B[31m" /* colors */
-#define GREEN   "\x1B[32m"
-#define YELLOW  "\x1B[33m"
-#define BLUE    "\x1B[34m"
-#define MAGENTA "\x1B[35m"
-#define CYAN    "\x1B[36m"
-#define WHITE   "\x1B[37m"
+#define VERSIONSTR "Version 0.8~beta"
 
-#define VERSIONSTR "Version 0.7" YELLOW "~beta" NRM
+#define VEOK           0   /* No error                    */
+#define VERROR         1   /* General error               */
+#define VEBAD          2   /* client was bad              */
+#define VEBAD2         3   /* client was naughty          */
+#define VETIMEOUT    (-1)  /* socket timeout              */
+
+/* Cross Platform Definitions */
+#ifdef WIN32
+/* Nullify non-windows functions (temporary)
+ * Please let the c gods forgive me... */
+#define kill(pid, opts)             (-1)
+#define waitpid(pid, status, opts)  (-1)
+typedef int pid_t;
+#endif
 
 /* Core includes */
+#include <stdint.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <time.h>
+#include <string.h>
+#include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+
 #include "config.h"
 #include "sock.h"     /* BSD sockets */
-#include "mochimo.h"
+#include "types.h"
 
 /* Prototypes */
 #include "proto.h"
@@ -53,7 +65,7 @@ char *Name;                /* pointer to worker name           */
 #include "rand.c"          /* fast random numbers              */
 
 /* Server control      */
-#include "util.c"
+#include "util.c"        /* cross platform support functions */
 #include "sock.c"          /* inet utilities                   */
 #include "connect.c"       /* make outgoing connection         */
 #include "call.c"          /* callserver() and friends         */
@@ -62,8 +74,7 @@ char *Name;                /* pointer to worker name           */
 /* Mining algorithm */
 #include "algo/peach/peach.c"
 #ifdef CUDANODE
-   /* CUDA Peach algo prototypes */
-   #include "algo/peach/cuda_peach.h"
+#include "algo/peach/cuda_peach.h"
 #endif
 
 /**
@@ -74,48 +85,26 @@ void sigterm(int sig)
    Running = 0;
 }
 
-/**
- * Send packet: set advertised fields and crc16.
- * Returns VEOK on success, else VERROR. */
+/* Send transaction in np->tx */
 int sendtx(NODE *np)
 {
-   int count, len;
-   time_t timeout;
-   byte *buff;
+   int count;
+   TX *tx;
 
-   np->tx.version[0] = PVERSION;
-   np->tx.version[1] = Cbits;
-   put16(np->tx.network, TXNETWORK);
-   put16(np->tx.trailer, TXEOT);
+   tx = &np->tx;
 
-   put16(np->tx.id1, np->id1);
-   put16(np->tx.id2, np->id2);
-   put64(np->tx.cblock, Cblocknum);  /* 64-bit little-endian */
-   memcpy(np->tx.cblockhash, Cblockhash, HASHLEN);
-   memcpy(np->tx.pblockhash, Prevhash, HASHLEN);
-   if(get16(np->tx.opcode) != OP_TX)  /* do not copy over TX ip map */
-      memcpy(np->tx.weight, Weight, HASHLEN);
-   crctx(&np->tx);
-   count = send(np->sd, TXBUFF(&np->tx), TXBUFFLEN, 0);
-   if(count == TXBUFFLEN) return VEOK;
-   /* --- v20 retry */
-   if(Trace) plog("sendtx(): send() retry...");
-   timeout = time(NULL) + 10;
-   for(len = TXBUFFLEN, buff = TXBUFF(&np->tx); ; ) {
-      if(count == 0) break;
-      if(count > 0) { buff += count; len -= count; }
-      else {
-         if(errno != EWOULDBLOCK || time(NULL) >= timeout) break;
-      }
-      count = send(np->sd, buff, len, 0);
-      if(count == len) return VEOK;
-   }
-   /* --- v20 end */
-   Nsenderr++;
-   if(Trace)
-      plog("send() error: count = %d  errno = %d", count, errno);
-   return VERROR;
-}  /* end sendtx() */
+   put16(tx->version, PVERSION);
+   put16(tx->network, TXNETWORK);
+   put16(tx->trailer, TXEOT);
+   put16(tx->id1, np->id1);
+   put16(tx->id2, np->id2);
+   memcpy(np->tx.weight, Weight, HASHLEN);
+   crctx(tx);
+   count = send(np->sd, TXBUFF(tx), TXBUFFLEN, 0);
+   if(count != TXBUFFLEN)
+      return VERROR;
+   return VEOK;
+}  /* end sendtx2() */
 
 
 int send_op(NODE *np, int opcode)
@@ -125,68 +114,8 @@ int send_op(NODE *np, int opcode)
 }
 
 /**
- * Converts 8 bytes of little endian data into a hexadecimal
- * character array without extraneous Zeroes.
- * Always writes the first byte of data. */
-char *bytes2hex_trim(byte *bnum)
-{
-   static char result[19];
-   char next[3] = "0x";
-   int pos = 7;
-   
-   /* clear result and begin with "0x" */
-   result[0] = '\0';
-   strcat(result, next);
-   /* work backwards to find first value */
-   while(bnum[pos] == 0 && pos > 0) pos--;
-   /* convert/Store remaining data */
-   while(pos >= 0) {
-      sprintf(next, "%02x", bnum[pos]);
-      strcat(result, next);
-      pos--;
-   }
-
-   return result;
-}
-
-/**
- * printf() with a timestamp prefix */
-void wprintf(char *fmt, ...)
-{
-   va_list argp;
-   
-   /* get timestamp */
-   time_t t = time(NULL);
-   struct tm tm = *localtime(&t);
-   
-   /* return if there's nothing to print */
-   if(fmt == NULL) return;
-   /* print timestamp prefix */
-   printf("[%d-%02d-%02d %02d:%02d:%02d] ",            /* Format */
-         tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, /*  Date  */
-         tm.tm_hour, tm.tm_min, tm.tm_sec);            /*  Time  */
-   
-   /* print remaining data */
-   va_start(argp, fmt);
-   vfprintf(stdout, fmt, argp);
-   va_end(argp);
-   /* flush to stdout */
-   fflush(stdout);
-}
-
-/**
- * Return current milliseconds for timing functions */
-uint64_t getms() {
-    struct timeval tv; 
-    gettimeofday(&tv, NULL);
-    uint64_t milliseconds = tv.tv_sec*1000LL + tv.tv_usec/1000;
-   
-    return milliseconds;
-}
-
-/**
  * Initialize miner and allocate memory where appropriate */
-int init_miner(void *ctx, BTRAILER *bt, byte diff)
+int init_miner(BTRAILER *bt, byte diff)
 {
    int initGPU;
 
@@ -194,14 +123,14 @@ int init_miner(void *ctx, BTRAILER *bt, byte diff)
    /* Initialize CUDA specific memory allocations
     * and check for obvious errors */
    initGPU = -1;
-   initGPU = init_cuda_peach(ctx, diff, (byte *) bt);
+   initGPU = init_cuda_peach(diff, (byte *) bt, &Running);
    if(initGPU==-1) {
-      wprintf("%sError: Cuda initialization failed. Check nvidia-smi%s\n", RED, NRM);
+      splog(RED, "Error: Cuda initialization failed.\n");
       free_cuda_peach();
       return VERROR;
    }
    if(initGPU<1 || initGPU>64) {
-      wprintf("%sError: Unsupported number of GPUs detected -> %d%s\n", RED, initGPU, NRM);
+      splog(RED, "Error: Unsupported number of GPUs detected -> %d\n", initGPU);
       free_cuda_peach();
       return VERROR;
    }
@@ -222,7 +151,7 @@ int update_miner(BTRAILER *bt, byte diff)
    updateGPU = -1;
    updateGPU = update_cuda_peach(diff, (byte *) bt);
    if(updateGPU==-1) {
-      wprintf("\n%sError: Cuda update failed... %s", RED, NRM);
+      splog(RED, "\nError: Cuda update failed... ");
       return VERROR;
    }
 #endif
@@ -265,7 +194,7 @@ int get_work(NODE *np, char *addr)
 
    /* connect and retrieve work */
    if(callserver(np, Peerip) != VEOK) {
-      wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM);
+      splog(RED, "Error: Could not connect to %s (%u)...\n", addr, Peerip);
       return VERROR;
    }
    if(send_op(np, OP_SEND_BL) != VEOK) ecode = 1;
@@ -274,7 +203,7 @@ int get_work(NODE *np, char *addr)
 
    closesocket(np->sd);
    if(ecode) {
-      wprintf("%sError: get_work() failed with ecode(%d)%s\n", RED, ecode, NRM); 
+      splog(RED, "Error: get_work() failed with ecode(%d)\n", ecode); 
       return VERROR;
    }
    return VEOK;
@@ -303,7 +232,7 @@ int send_work(BTRAILER *bt, byte diff, char *addr)
 
    /* connect */
    if(callserver(&node, Peerip) != VEOK) {
-      wprintf("%sError: Could not connect to %s...%s\n", RED, addr, NRM);
+      splog(RED, "Error: Could not connect to %s...\n", addr);
       return VERROR;
    }
 
@@ -319,7 +248,7 @@ int send_work(BTRAILER *bt, byte diff, char *addr)
    
    closesocket(node.sd);
    if(ecode) {
-      wprintf("%sError: send_work() failed with ecode(%d)%s\n", RED, ecode, NRM); 
+      splog(RED, "Error: send_work() failed with ecode(%d)\n", ecode); 
       return VERROR;
    }
    return VEOK;
@@ -330,10 +259,11 @@ int send_work(BTRAILER *bt, byte diff, char *addr)
  * The Mochimo Worker */
 int worker(char *addr)
 {
+   PeachHPS hps[MAX_GPUS];
    BTRAILER bt;
    NODE node;
    TX *tx;
-   float hps, thps;
+   float ahps, thps;
    time_t Wtime, Stime;
    uint64_t msping, msinit;
    word32 shares, lastshares, haikus;
@@ -354,6 +284,7 @@ int worker(char *addr)
    adiff = 0;                  /* ... tracks auto difficulty buff    */
    shares = 0;                 /* ... solution count                 */
    lastshares = 0;             /* ... solution count (from get_work) */
+   haikus = 0;                 /* ... counts total hashes performed  */
    tx = &(node.tx);            /* ... store pointer to node.tx       */
 
    /* ... event timers */
@@ -366,23 +297,23 @@ int worker(char *addr)
    
    /* Check worker settings */
    if((Peerip = str2ip(addr)) == 0) {
-      printf("%sError: Peerip is invalid, addr=%s%s\n", RED, addr, NRM);
+      splog(RED, "Error: Peerip is invalid, addr=%s\n", addr);
       return VERROR;
    }
    if(Interval == 0) {
-      printf("%sError: Interval must be greater than Zero (0)%s\n", RED, NRM);
+      splog(RED, "Error: Interval must be greater than Zero (0)\n");
       return VERROR;
    }
    if(Name && strlen(Name) > 31) {
       Name[31] = 0;
-      printf("%sWarning: A worker name can only be 31 characters long. Your\n"
-             "worker name has been shortened to: %s%s\n\n", YELLOW, Name, NRM);
+      splog(YELLOW, "Warning: A worker name can only be 31 characters long. Your\n"
+             "worker name has been shortened to: %s\n\n", Name);
    }
    
+   /* ... wipe HPS context */
+   memset(hps, 0, 64 * sizeof(PeachHPS));
+   
 #ifdef CUDANODE
-   /* ... CUDA context */
-   PeachCudaCTX ctx[64];
-   memset(ctx, 0, 64 * sizeof(PeachCudaCTX));
    /* ... enhanced NVIDIA stats reporting */
    nvml_ok = init_nvml();
 #endif
@@ -393,16 +324,16 @@ int worker(char *addr)
 
       if(Ltime >= Wtime) {
          /* get work from host */
-         msping = getms();
+         msping = timestamp_ms();
          if(get_work(&node, addr) == VEOK) {
-            msping = getms() - msping;
+            msping = timestamp_ms() - msping;
             
             /* check for autodiff adjustment conditions */
             if(Difficulty == 255 && lastshares + 2 < shares) {
                for(i = shares - lastshares + 2; i > 0; i /= 3)
                   adiff++;
-               wprintf("%sAutoDiff | Adjust Difficulty %d -> %d%s\n",
-                       YELLOW, sdiff, rdiff + adiff, NRM);
+               splog(YELLOW, "AutoDiff | Adjust Difficulty %d -> %d\n",
+                     sdiff, rdiff + adiff);
             }
 
             /* check data for new work
@@ -426,9 +357,9 @@ int worker(char *addr)
                
                /* switch difficulty handling to auto if manual too low */
                if(Difficulty != 0 && Difficulty != 255 && Difficulty < rdiff) {
-                  wprintf("%sDifficulty is lower than required!"
-                          " (%d < %d)%s\n", RED, Difficulty, rdiff, NRM);
-                  wprintf("%sSwitching difficulty to auto...%s\n", YELLOW, NRM);
+                  splog(RED, "Difficulty is lower than required! (%d < %d)\n",
+                        Difficulty, rdiff);
+                  splog(YELLOW, "Switching difficulty to auto...\n");
                   Difficulty = 0;
                }
                if(Difficulty == 0)
@@ -440,11 +371,11 @@ int worker(char *addr)
                
                /* Report on work status */
                if(cmp64(bt.bnum, Zeros) == 0) {
-                  wprintf("%sNo Work  | Waiting on host...%s\n", YELLOW, NRM);
+                  splog(YELLOW, "No Work  | Waiting on host...\n");
                   Mining = 0;
                } else {
-                  wprintf("%sNew Work | %s, d%d, t%d | ", YELLOW,
-                          bytes2hex_trim(bt.bnum), rdiff, get32(bt.tcount));
+                  splog(YELLOW, "New Work | %s, d%d, t%d | ",
+                        bnum2hex_short(bt.bnum), rdiff, get32(bt.tcount));
                   
                   /* free any miner variables ONLY ON NEW PHASH */
                   if(memcmp(lasthash, Zeros, 32) != 0 &&
@@ -457,25 +388,26 @@ int worker(char *addr)
                   if(memcmp(lasthash, bt.phash, 32) != 0) {
                      printf("Initializing... ");
                      fflush(stdout);
-                     msinit = getms();
-                     result = init_miner(ctx, &bt, sdiff);
+                     msinit = timestamp_ms();
+                     result = init_miner(&bt, sdiff);
                   } else {
                      printf("Updating...");
                      fflush(stdout);
-                     msinit = getms();
+                     msinit = timestamp_ms();
                      result = update_miner(&bt, sdiff);
                   }
-                  printf("[%lums]%s\n", getms() - msinit, NRM);
+                  printf("[%llums]\n", timestamp_ms() - msinit);
                   
                   /* check initialization */
                   if(result == VEOK) {
-                     wprintf("Solving  | %s, d%d, t%d\n",
-                             bytes2hex_trim(bt.bnum), sdiff, get32(bt.tcount));
+                     splog(0, "Solving  | %s, d%d, t%d\n",
+                           bnum2hex_short(bt.bnum), sdiff, get32(bt.tcount));
                      Mining = 1;
                      memcpy(lasthash, bt.phash, 32);
                   } else {
-                     wprintf("%sInitFail | Check GPUs...%s\n", RED, NRM);
+                     splog(RED, "InitFail | Check GPUs...\n");
                      Mining = 0;
+                     memset(lasthash, 0, 32);
                   }
                }
             }
@@ -483,19 +415,19 @@ int worker(char *addr)
          
          if(cmp64(bt.bnum, One) > 0) {
             /* print individual device haikurates */
-            wprintf("Devices ");
+            splog(0, "Devices ");
             thps = 0;
             for(i = 0; i < 64; i++) {
-               if(ctx[i].total_threads) {
-                  hps = ctx[i].ahps;
-                  thps += hps;
-                  for(j = 0; hps > 1000 && j < 4; j++)
-                     hps /= 1000;
-                  printf(" | %d: %.02f %s", i, hps, metric[j]);
+               if(hps[i].t_start > 0) {
+                  ahps = hps[i].ahps;
+                  thps += ahps;
+                  for(j = 0; ahps > 1000 && j < 4; j++)
+                     ahps /= 1000;
+                  printf(" | %d: %.02f %s", i, ahps, metric[j]);
                }
             }
             /* print a "total haikurate" if more than one device */
-            if(ctx[1].total_threads) {
+            if(hps[1].t_start > 0) {
                for(j = 0; thps > 1000 && j < 4; j++)
                   thps /= 1000;
                printf(" | Total: %.02f %s", thps, metric[j]);
@@ -528,14 +460,25 @@ int worker(char *addr)
 
 #ifdef CUDANODE
          /* Run the peach cuda miner */
-         Blockfound = cuda_peach_worker((byte *) &bt, &Running);
+         Blockfound = cuda_peach_worker(hps, (byte *) &bt, &Running);
 #endif
          
          if(!Running) continue;
          if(Blockfound) {
             /* ... better double check share before sending */
             if(peach(&bt, sdiff, NULL, 1)) {
-               wprintf("%sError: The Mochimo gods have rejected your share :(%s\n", RED, NRM);
+               splog(RED, "Error: The Mochimo gods have rejected your share :(\n");
+               if(Trace) {
+                  printf("Checking Difficulty...\n");
+                  for(i = 0; i < sdiff; i++) {
+                     if(peach(&bt, i, NULL, 1)) {
+                        printf("Difficulty %d FAILED...\n", i);
+                        break;
+                     } else {
+                        printf("Difficulty %d PASS...\n", i);
+                     }
+                  }
+               }
             } else {
                if(Showhaiku) {
                   /* Mmmm... Nice haiku */
@@ -544,33 +487,33 @@ int worker(char *addr)
                }
                /* Offer share to the Host */
                for(i = 4, j = 0; i > -1; i--) {
-                  msping = getms();
+                  msping = timestamp_ms();
                   if(send_work(&bt, sdiff, addr) == VEOK) {
-                     msping = getms() - msping;
+                     msping = timestamp_ms() - msping;
                      shares++;
 
                      /* Estimate Share Rate */
                         /* add to total haikus */
                         haikus += (1 << sdiff);
                         /* calculate average haikurate over session */
-                        hps = haikus / (time(NULL) - Stime);
+                        ahps = haikus / (time(NULL) - Stime);
                         /* get haikurate metric */
                         for(i = 0; i < 4; i++) {
-                           if(hps < 1000) break;
-                           hps /= 1000;
+                           if(ahps < 1000) break;
+                           ahps /= 1000;
                         }
                      /* end Estimate Share Rate */
                      
                      /* Output share statistics */
-                     wprintf("%sSuccess! | Shares: %u | Est. sRate "
-                             "%.02f %s [%lums]%s\n", GREEN, shares, hps,
-                             metric[i], msping, NRM);
+                     splog(GREEN, "Success! | Shares: %u | Est. sRate "
+                             "%.02f %s [%lums]\n", shares, ahps,
+                             metric[i], msping);
                      break;
                   }
-                  sleep(5);
+                  msleep(5000);
                }
                if(i < 0)
-                  wprintf("%sFailed to send share to host :(%s\n", RED, NRM);
+                  splog(RED, "Failed to send share to host :(\n");
             }
             /* extra output */
             if(Trace) {
@@ -589,7 +532,7 @@ int worker(char *addr)
             Blockfound = 0;
          }
       } else /* Chillax if not Mining */
-         usleep(1000000);
+         msleep(1000);
 
    } /* end while(Running) */
 
@@ -631,6 +574,19 @@ int main(int argc, char **argv)
    if(get16(endian) != 0x1234)
       fatal("little-endian machine required for this build.");
    
+#ifdef _WINSOCKAPI_
+   /* Initiate the use of the Winsock DLL */
+   static WORD wsaVerReq;
+   static WSADATA wsaData;
+
+   wsaVerReq = 0x0101;	/* version 1.1 */
+   if(WSAStartup(wsaVerReq, &wsaData) == SOCKET_ERROR)
+      fatal("WSAStartup()");
+   Needcleanup = 1;
+#endif
+   
+   
+   
    /**
     * Seed ID token generator */
    srand16(time(&Ltime));
@@ -651,8 +607,8 @@ int main(int argc, char **argv)
    /*******************/
    /* TEMPORARY ALERT */
 #ifdef CPUNODE
-   wprintf("%sError: The Mochimo CPU worker is not currently supported :(%s\n", RED, NRM);
-   wprintf("%s       Please compile CUDA for now%s\n", RED, NRM);
+   splog(RED, "Error: The Mochimo CPU worker is not currently supported :(\n");
+   splog(RED, "       Please compile CUDA for now\n");
    return 1;
 #endif
    /* end TEMPORARY ALERT */
@@ -695,24 +651,25 @@ int main(int argc, char **argv)
       signal(j, SIG_IGN);
    signal(SIGINT, sigterm);  /* signal interrupt, ctrl+c */
    signal(SIGTERM, sigterm); /* signal terminate, kill */
+   /* Not working on windows, find a fix during multithread overhaul
    signal(SIGCHLD, SIG_DFL); /* default signal handling, so waitpid() works */
    
    /**
     * Introducing! */
-   printf(BOLD
-   "   __  __         _    " BLUE "_" NRM BOLD "            __      __       _\n"
-   "  |  \\/  |___  __| |_ " BLUE "(_)" NRM BOLD "_ __  ___  \\ \\    / /__ _ _| |_____ _ _\n"
+   printf(
+   "   __  __         _    _            __      __       _\n"
+   "  |  \\/  |___  __| |_ (_)_ __  ___  \\ \\    / /__ _ _| |_____ _ _\n"
    "  | |\\/| / _ \\/ _| ' \\| | '  \\/ _ \\  \\ \\/\\/ / _ \\ '_| / / -_) '_|\n"
-   "  |_|  |_\\___/\\__|_||_|_|_|_|_\\___/   \\_/\\_/\\___/_| |_\\_\\___|_|\n" NRM
+   "  |_|  |_\\___/\\__|_||_|_|_|_|_\\___/   \\_/\\_/\\___/_| |_\\_\\___|_|\n"
    "                        Copyright (c) 2019 Adequate Systems, LLC.\n"
    "           @@@@@@                            All rights reserved.\n"
    "        @@@  @@  @@@\n"
-   "     @@@    @@      @@@    " BOLD "Worker~ %.32s%s\n" NRM
-   "    @@  @@@@@@@@@@@@  @@     BinBuiltOn" BLUE "..." NRM " %s %s\n"
-   "   @@  @@  @@  @@  @@  @@    BinVersion" BLUE "..." NRM " " VERSIONSTR "\n"
-   "   @@  @@  @@  @@  @@  @@    Connection" BLUE "..." NRM " %s:%hu\n"
-   "   @@  @@  @@  @@  @@  @@    Check work" BLUE "..." NRM " %u seconds\n"
-   "   @@  @@  @@  @@  @@  @@    Difficulty" BLUE "..." NRM " %u (%s)\n"
+   "     @@@    @@      @@@    Worker~ %.32s%s\n"
+   "    @@  @@@@@@@@@@@@  @@     BinBuiltOn... %s %s\n"
+   "   @@  @@  @@  @@  @@  @@    BinVersion... " VERSIONSTR "\n"
+   "   @@  @@  @@  @@  @@  @@    Connection... %s:%hu\n"
+   "   @@  @@  @@  @@  @@  @@    Check work... %u seconds\n"
+   "   @@  @@  @@  @@  @@  @@    Difficulty... %u (%s)\n"
    "    @@@@@@@@@@@@@@@@@@@@\n"
    "      @@@          @@@     Starting up...\n"
    "         @@@@@@@@@@\n\n",
@@ -722,11 +679,17 @@ int main(int argc, char **argv)
 
    /**
     * Enjoy the header for a moment */
-   sleep(2);
+   msleep(2000);
    
    /**
     * Start the worker*/
    worker(Hostaddr);
+
+#ifdef _WINSOCKAPI_
+   /* Cleanup Winsock DLL when done */
+   if(Needcleanup)
+      WSACleanup();
+#endif
 
    /**
     * End */

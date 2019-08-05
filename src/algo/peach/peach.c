@@ -13,10 +13,9 @@
 
 #include "peach.h"
 #include <assert.h>
-#include <inttypes.h>
 #include <math.h>
-#include <sys/time.h>
 
+#include "../../util.h"
 #include "nighthash.c"
 
 /* Prototypes from trigg.o dependency */
@@ -168,7 +167,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
 
    uint32_t sm;
    uint64_t j, h;
-   struct timeval tstart, tend, telapsed;
+   uint64_t tstart, tend, telapsed;
    byte *map, *cache, *tile, diff, bt_hash[HASHLEN];
    int solved, cached;
 
@@ -179,7 +178,7 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
    tile = NULL;
    solved = 0;
    
-   gettimeofday(&tstart, NULL);
+   tstart = timestamp_ms();
    
    if(Trace) plog("Peach mode %i, diff %i", mode, diff);   
    if(mode == 0) {
@@ -246,18 +245,17 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
       /* include the mining address and transactions as part of the solution */
 
       if(mode == 1) { /* Just Validating, not Mining, check once and return */
-         gettimeofday(&tend, NULL);
-         timersub(&tend, &tstart, &telapsed);
+         tend = timestamp_ms();
+         telapsed = tend - tstart;
          if(Trace)
-            plog("Peach validated in %ld.%06ld seconds", 
-                 (long int) telapsed.tv_sec, (long int) telapsed.tv_usec);
-         
+            plog("Peach validated in %llu ms", telapsed);
+            
          goto out;
       }
 
       if(solved) { /* We're Mining & We Solved! */
-         gettimeofday(&tend, NULL);
-         timersub(&tend, &tstart, &telapsed);
+         tend = timestamp_ms();
+         telapsed = tend - tstart;
 
          if(peach(bt, difficulty, NULL, 1)) {
             byte* bt_bytes = (byte*) bt;
@@ -274,8 +272,8 @@ int peach(BTRAILER *bt, word32 difficulty, word32 *hps, int mode)
          for(int i = 0; i < MAP; i++) {
             if(cache[i]) cached++;
          }
-         plog("Peach found in %ld.%06ld seconds, %li iterations, %i cached", 
-             (long int) telapsed.tv_sec, (long int)telapsed.tv_usec, h, cached);
+         plog("Peach found in %llu ms, %li iterations, %i cached", 
+              telapsed, h, cached);
          *hps = h;
 
          char haiku[256];
