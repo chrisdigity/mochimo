@@ -26,8 +26,10 @@
 #else /* Assume UNIXLIKE system */
 
 #include <sys/time.h>
+#include <sys/wait.h>  /* for waitpid() */
+#include <sys/file.h>  /* for flock() */
 
-#ifdef _POSIX_C_SOURCE >= 199309L
+#if _POSIX_C_SOURCE >= 199309L
 #include <time.h>   /* for nanosleep */
 #else
 #include <unistd.h> /* for usleep */
@@ -50,7 +52,7 @@ void msleep(uint32_t ms)
    ts.tv_sec = ms / 1000;
    ts.tv_nsec = (ms % 1000) * 1000000L;
    do {
-      res = nanosleep(&ts, %ts);
+      res = nanosleep(&ts, &ts);
    } while(res);
 
 #else /* Assume older UNIXLIKE system */

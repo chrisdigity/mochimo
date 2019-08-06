@@ -10,6 +10,7 @@
 */
 
 #ifdef WIN32
+
 /* Define WIN32_LEAN_AND_MEAN and setup trigger to return definition to it's
  * original state to reduce undesired effects in the remaining codebase */
 #ifndef WIN32_LEAN_AND_MEAN
@@ -21,6 +22,12 @@
 #undef WIN32_LEAN_AND_MEAN
 #undef UNDEF_LEAN_AND_MEAN
 #endif /* UNDEF_LEAN_AND_MEAN */
+
+#else /* Assume UNIXLIKE system */
+
+#include <unistd.h>
+#include <sys/wait.h>  /* for waitpid() */
+
 #endif /* Not WIN32 */
 
 #ifndef ERRORFNAME

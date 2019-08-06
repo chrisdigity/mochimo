@@ -27,7 +27,7 @@ typedef int pid_t;
 #endif
 
 /* Core includes */
-#include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -396,7 +396,7 @@ int worker(char *addr)
                      msinit = timestamp_ms();
                      result = update_miner(&bt, sdiff);
                   }
-                  printf("[%llums]\n", timestamp_ms() - msinit);
+                  printf("[%" PRIu64 "ms]\n", timestamp_ms() - msinit);
                   
                   /* check initialization */
                   if(result == VEOK) {
