@@ -1,0 +1,20 @@
+Mochimo Worker installation instructions
+Windows Setup:
+1) Download Microsoft Visual Studio 2017 Community edition. Best way
+   to acquire this is to download the Visual Studio 2017 "Web Installer" here:
+   https://developerinsider.co/download-visual-studio-2017-web-installer-iso-community-professional-enterprise/
+2) Once the Visual Studio installer is open, select to install the "Community"
+   edition, then select "Desktop development with C++" and hit "Install" in the
+   bottom right. Should be about a 6GB installation. After that, probably untick
+   the "Start after installation" option. Don't subject yourself to such evils.
+3) Once this is complete, download the latest (or compatible) Cuda Toolkit for
+   your GPUs from: https://developer.nvidia.com/cuda-toolkit
+4) Complete the Cuda Toolkit installation and restart Windows.
+5) The last thing you might need to do is make an addition to the PATH variable.
+   Do;
+   Start (Windows key) -> Type 'View advanced system settings' -> Enter
+   Click on 'Environment Variables'
+   Under 'System Variables', scroll down to 'Path' and Edit it
+   Click 'New' and type in "C:\Program Files\NVIDIA Corporation\NVSMI\"
+   Press 'OK' -> 'OK' -> and now we can compile.
+6) Use the makewin.bat file, and the command you'll want is 'makewin worker -DCUDA'
