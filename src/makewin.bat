@@ -87,21 +87,21 @@ if %errorlevel% NEQ 0 (
 )
 if "%1"=="uninstall" (
    dir /ad /b "../bin"
-   if %errorlevel% NEQ 0 (
+   if !errorlevel! NEQ 0 (
       echo Error
       echo Cannot find installation directory mochimo/bin
       goto END
    )
    dir /ad /b "../bin/d"
-   if %errorlevel% NEQ 0 (
+   if !errorlevel! NEQ 0 (
       echo Error
       echo Cannot find working directory mochimo/bin/d
       goto END
    )
 )
 if %CUDANODE% EQU 1 (
-   nvcc --version > NUL
-   if %errorlevel% NEQ 0 (
+   nvcc --version >>ccerror.log 2>&1
+   if !errorlevel! NEQ 0 (
       echo Failed to find Nvidia CUDA Compiler.
       echo Please ensure an appropriate Cuda Toolkit has been correctly
       echo installed AFTER your Microsoft Visual Studio installation.
@@ -117,7 +117,7 @@ REM Preconfiguration
 echo | set /p="Preconfiguration... "
 
 REM Reset error log
-del /f /q "ccerror.log" > NUL 2>&1
+del /f /q "ccerror.log" 1>NUL 2>&1
 echo. 2>ccerror.log 1>NUL
 
 REM Preconfigure CUDA
