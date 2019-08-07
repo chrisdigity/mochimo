@@ -188,13 +188,16 @@ int uninit_miner()
  *                         (intended use; avoid duplicate work between workers)
  *    } 
  * Worker Function... */
-int get_work(NODE *np, char *addr)
+int get_work(NODE *np)
 {
    int ecode = 0;
 
+   /* clear any existing TX data */
+   memset(TXBUFF(&(np->tx)), 0, TXBUFFLEN);
+
    /* connect and retrieve work */
    if(callserver(np, Peerip) != VEOK) {
-      splog(RED, "Error: Could not connect to %s (%u)...\n", addr, Peerip);
+      splog(RED, "Error: Could not connect to %s...\n", ntoa((byte *) &Peerip));
       return VERROR;
    }
    if(send_op(np, OP_SEND_BL) != VEOK) ecode = 1;
@@ -223,30 +226,46 @@ int get_work(NODE *np, char *addr)
  *       byte 0-159,   ... 160 byte block trailer containing valid nonce.
  *       byte 160-163, ... 32 bit (little endian) share difficulty.
  * Optional data sent...
- *    tx->weight,      31 characters of space for a worker name.
+ *    tx->weight,      24 bytes of space for the workers name, followed by
+ *                     8 bytes of space for the workers hasrate.
+ *    tx->dst_addr,    2208 byte mining address. Note, tx->len must be
+ *                     increased to 4408 to represent new TX buffer size.
  * Worker Function... */
-int send_work(BTRAILER *bt, byte diff, char *addr)
+int send_work(NODE *np, BTRAILER *bt, byte diff, uint64_t thps)
 {
-   NODE node;
    int ecode = 0;
-
+   
+   /* clear any existing TX data */
+   memset(TXBUFF(&(np->tx)), 0, TXBUFFLEN);
+   
    /* connect */
-   if(callserver(&node, Peerip) != VEOK) {
-      splog(RED, "Error: Could not connect to %s...\n", addr);
+   if(callserver(np, Peerip) != VEOK) {
+      splog(RED, "Error: Could not connect to %s...\n", ntoa((byte *) &Peerip));
       return VERROR;
    }
 
-   /* setup work to send */
+   /* setup worker details and work to send */
    if(Name)
-      strcpy(node.tx.weight, Name);
-   node.tx.len[0] = 164;
-   memcpy(node.tx.src_addr, bt, 160);
-   memcpy(node.tx.src_addr+160, &diff, 4);
+      strcpy(np->tx.weight, Name);               /* worker name         */
+   put64(&(np->tx.weight[24]), &thps);           /* worker hashrate     */
+   memcpy(np->tx.src_addr, bt, 160);             /* share block trailer */
+   memcpy(np->tx.src_addr+160, &diff, 4);        /* share dificulty     */
+   if(iszero(Maddr, TXADDRLEN))
+      put16(np->tx.len, 164);
+   else {
+      memcpy(np->tx.dst_addr, Maddr, TXADDRLEN); /* mining address      */
+      put16(np->tx.len, 4408);
+   }
 
    /* send */
-   if(send_op(&node, OP_FOUND) != VEOK) ecode = 1;
+   if(send_op(np, OP_FOUND) != VEOK) ecode = 1;
    
-   closesocket(node.sd);
+   /* return status *//*
+   if(!ecode && rx2(np, 1, 10) != VEOK) ecode = 2;
+   if(!ecode && get16(np->tx.opcode) != OP_FOUND) ecode = 3;
+   */
+   
+   closesocket(np->sd);
    if(ecode) {
       splog(RED, "Error: send_work() failed with ecode(%d)\n", ecode); 
       return VERROR;
@@ -304,9 +323,9 @@ int worker(char *addr)
       splog(RED, "Error: Interval must be greater than Zero (0)\n");
       return VERROR;
    }
-   if(Name && strlen(Name) > 31) {
-      Name[31] = 0;
-      splog(YELLOW, "Warning: A worker name can only be 31 characters long. Your\n"
+   if(Name && strlen(Name) > 23) {
+      Name[23] = 0;
+      splog(YELLOW, "Warning: A worker name can only be 23 characters long. Your\n"
              "worker name has been shortened to: %s\n\n", Name);
    }
    
@@ -325,7 +344,7 @@ int worker(char *addr)
       if(Ltime >= Wtime) {
          /* get work from host */
          msping = timestamp_ms();
-         if(get_work(&node, addr) == VEOK) {
+         if(get_work(&node) == VEOK) {
             msping = timestamp_ms() - msping;
             
             /* check for autodiff adjustment conditions */
@@ -488,7 +507,7 @@ int worker(char *addr)
                /* Offer share to the Host */
                for(i = 4, j = 0; i > -1; i--) {
                   msping = timestamp_ms();
-                  if(send_work(&bt, sdiff, addr) == VEOK) {
+                  if(send_work(&node, &bt, sdiff, (uint64_t) thps) == VEOK) {
                      msping = timestamp_ms() - msping;
                      shares++;
 
@@ -565,7 +584,9 @@ int main(int argc, char **argv)
    static int j;
    static byte endian[] = { 0x34, 0x12 };
    static char *Hostaddr = "127.0.0.1";
-
+   static char maddrstr[33] = {0};
+   char buff[3] = "0x";
+   
    /* sanity checks */
    if(sizeof(word32) != 4) fatal("word32 should be 4 bytes");
    if(sizeof(TX) != TXBUFFLEN || sizeof(LTRAN) != (TXADDRLEN + 1 + TXAMOUNT)
@@ -586,11 +607,11 @@ int main(int argc, char **argv)
 #endif
    
    
-   
    /**
     * Seed ID token generator */
-   srand16(time(&Ltime));
-   srand2(Ltime, 0, rand16());
+   read_data(Maddr, TXADDRLEN, "maddr.dat");
+   srand16(time(&Ltime) ^ get32(Maddr) ^ getpid());
+   srand2(Ltime ^ get32(Maddr+4), 0, 123456789 ^ get32(Maddr+8) ^ getpid());
    
    /**
     * Set Defaults */
@@ -654,6 +675,15 @@ int main(int argc, char **argv)
    /* Not working on windows, find a fix during multithread overhaul
    signal(SIGCHLD, SIG_DFL); /* default signal handling, so waitpid() works */
    
+   /* Stringify Mining Address */
+   if(iszero(Maddr, TXADDRLEN) == 0) {
+      strcat(maddrstr, buff);
+      for(j = 0; j < 16; j++) {
+         sprintf(buff, "%02x", Maddr[j]);
+         strcat(maddrstr, buff);
+      }
+   } else strcat(maddrstr, "none - using host address");
+   
    /**
     * Introducing! */
    printf(
@@ -664,17 +694,17 @@ int main(int argc, char **argv)
    "                        Copyright (c) 2019 Adequate Systems, LLC.\n"
    "           @@@@@@                            All rights reserved.\n"
    "        @@@  @@  @@@\n"
-   "     @@@    @@      @@@    Worker~ %.32s%s\n"
-   "    @@  @@@@@@@@@@@@  @@     BinBuiltOn... %s %s\n"
+   "     @@@    @@      @@@    Worker~ %.23s%s\n"
+   "    @@  @@@@@@@@@@@@  @@     MiningAddr... %s\n"
+   "   @@  @@  @@  @@  @@  @@    BinBuiltOn... %s %s\n"
    "   @@  @@  @@  @@  @@  @@    BinVersion... " VERSIONSTR "\n"
    "   @@  @@  @@  @@  @@  @@    Connection... %s:%hu\n"
    "   @@  @@  @@  @@  @@  @@    Check work... %u seconds\n"
-   "   @@  @@  @@  @@  @@  @@    Difficulty... %u (%s)\n"
-   "    @@@@@@@@@@@@@@@@@@@@\n"
-   "      @@@          @@@     Starting up...\n"
-   "         @@@@@@@@@@\n\n",
-   Name ? Name : "", Name ? strlen(Name) > 32 ? "..." : "" : "",
-   __DATE__, __TIME__, Hostaddr, Port, Interval, Difficulty,
+   "    @@@@@@@@@@@@@@@@@@@@     Difficulty... %u (%s)\n"
+   "      @@@          @@@\n"
+   "         @@@@@@@@@@        Starting up...\n\n",
+   Name ? Name : "", Name ? strlen(Name) > 23 ? "..." : "" : "",
+   maddrstr, __DATE__, __TIME__, Hostaddr, Port, Interval, Difficulty,
    Difficulty == 255 ? "automatic" : Difficulty > 0 ? "manual" : "host");
 
    /**
