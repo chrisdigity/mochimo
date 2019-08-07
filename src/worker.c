@@ -284,8 +284,8 @@ int worker(char *addr)
    TX *tx;
    float ahps, thps;
    time_t Wtime, Stime;
-   uint64_t msping, msinit;
-   word32 shares, lastshares, haikus;
+   uint64_t msping, msinit, haikus;
+   word32 solves, shares, lastshares, invalid;
    byte rdiff, sdiff, adiff;
    byte nvml_ok, result;
    int i, j, k;
@@ -301,13 +301,14 @@ int worker(char *addr)
    rdiff = 0;                  /* ... tracks required difficulty     */
    sdiff = 0;                  /* ... tracks solving difficulty      */
    adiff = 0;                  /* ... tracks auto difficulty buff    */
-   shares = 0;                 /* ... solution count                 */
+   solves = 0;                 /* ... block solve count              */
+   shares = 0;                 /* ... valid share count              */
+   invalid = 0;                /* ... invalid share count            */
    lastshares = 0;             /* ... solution count (from get_work) */
    haikus = 0;                 /* ... counts total hashes performed  */
    tx = &(node.tx);            /* ... store pointer to node.tx       */
 
    /* ... event timers */
-   Ltime = time(NULL);   /* UTC seconds          */
    Wtime = Ltime - 1;    /* get work timer       */
    Stime = Ltime;        /* start time           */
 
@@ -434,10 +435,11 @@ int worker(char *addr)
          
          if(cmp64(bt.bnum, One) > 0) {
             /* print individual device haikurates */
-            splog(0, "Devices ");
             thps = 0;
             for(i = 0; i < 64; i++) {
                if(hps[i].t_start > 0) {
+                  if(i == 0)
+                     splog(0, "Devices ");
                   ahps = hps[i].ahps;
                   thps += ahps;
                   for(j = 0; ahps > 1000 && j < 4; j++)
@@ -447,9 +449,10 @@ int worker(char *addr)
             }
             /* print a "total haikurate" if more than one device */
             if(hps[1].t_start > 0) {
-               for(j = 0; thps > 1000 && j < 4; j++)
-                  thps /= 1000;
-               printf(" | Total: %.02f %s", thps, metric[j]);
+               ahps = thps;
+               for(j = 0; ahps > 1000 && j < 4; j++)
+                  ahps /= 1000;
+               printf(" | Total: %.02f %s", ahps, metric[j]);
             }
             printf("\n");
             /* extra output */
@@ -486,19 +489,11 @@ int worker(char *addr)
          if(Blockfound) {
             /* ... better double check share before sending */
             if(peach(&bt, sdiff, NULL, 1)) {
+               invalid++;
                splog(RED, "Error: The Mochimo gods have rejected your share :(\n");
-               if(Trace) {
-                  printf("Checking Difficulty...\n");
-                  for(i = 0; i < sdiff; i++) {
-                     if(peach(&bt, i, NULL, 1)) {
-                        printf("Difficulty %d FAILED...\n", i);
-                        break;
-                     } else {
-                        printf("Difficulty %d PASS...\n", i);
-                     }
-                  }
-               }
             } else {
+               if(!peach(&bt, get32(bt.difficulty), NULL, 1))
+                  solves++;
                if(Showhaiku) {
                   /* Mmmm... Nice haiku */
                   trigg_expand2(bt.nonce, haiku);
@@ -524,9 +519,11 @@ int worker(char *addr)
                      /* end Estimate Share Rate */
                      
                      /* Output share statistics */
-                     splog(GREEN, "Success! | Shares: %u | Est. sRate "
-                             "%.02f %s [%lums]\n", shares, ahps,
-                             metric[i], msping);
+                     splog(GREEN, "Success! | Solves: %u / Shares: %u / "
+                           "Invalid: %u [%lums]\n", solves, shares,
+                           invalid, msping);
+                     splog(0, "Estimated Share Rate: %.02f %s\n",
+                           ahps, metric[i]);
                      break;
                   }
                   msleep(5000);

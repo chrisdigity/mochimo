@@ -300,8 +300,6 @@ out:
 
    tile = map = cache = NULL;
 
-   if(mode == 1 && solved == 0) plog("?????Peach Validation failed?????");
-
    if(mode != 1 && !Running) return 1; /* SIGTERM RECEIVED */
 
    return solved ? 0 : 1;  /* Return 0 if valid, 1 if not valid */
