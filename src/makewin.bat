@@ -185,7 +185,11 @@ REM Function to get CUDA Compute Capabilities
       set CUDA_GENCODE="-gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75"
    )
    REM Determine CUDA include and library directories
-   for /F "tokens=* USEBACKQ" %%i in (`where /F nvcc`) do @set NVCC_PATH=%%i
+   for /F "delims=" %%i in ('where /F nvcc') do (
+      @set NVCC_PATH=%%i
+      goto breaknvccpath
+   )
+   :breaknvccpath
    set NVCC_INCLUDE=%NVCC_PATH:bin\nvcc.exe=include%
    set NVCC_LIB=%NVCC_PATH:bin\nvcc.exe=lib\x64%
    EXIT /B 0
