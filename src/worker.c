@@ -228,8 +228,8 @@ int get_work(NODE *np)
  * Optional data sent...
  *    tx->weight,      24 bytes of space for the workers name, followed by
  *                     8 bytes of space for the workers hasrate.
- *    tx->dst_addr,    2208 byte mining address. Note, tx->len must be
- *                     increased to 4408 to represent new TX buffer size.
+ *    tx->chg_addr,    2208 byte mining address. Note, tx->len must be
+ *                     increased to 6624 to represent new TX buffer size.
  * Worker Function... */
 int send_work(NODE *np, BTRAILER *bt, byte diff, uint64_t thps)
 {
@@ -253,8 +253,8 @@ int send_work(NODE *np, BTRAILER *bt, byte diff, uint64_t thps)
    if(iszero(Maddr, TXADDRLEN))
       put16(np->tx.len, 164);
    else {
-      memcpy(np->tx.dst_addr, Maddr, TXADDRLEN); /* mining address      */
-      put16(np->tx.len, 4408);
+      memcpy(np->tx.chg_addr, Maddr, TXADDRLEN); /* mining address      */
+      put16(np->tx.len, 6624);
    }
 
    /* send */
