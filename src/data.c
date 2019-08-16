@@ -101,6 +101,11 @@ byte Weight[HASHLEN];
  * neofail.lck   neogen   bupdata   bupdata
 */
 
+/* Worker globals */
+byte Userhash[HASHLEN];
+SHA256_CTX Wbctx;
+BTRAILER Wbt;
+
 /* Global semaphores */
 byte Blockfound;          /* set on receiving OP_FOUND from peer */
 word32 Peerip;            /* gift to bval and others */
