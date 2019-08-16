@@ -300,30 +300,81 @@ case "$1" in
       echo "Done."
       ;;
    "install") # Install binaries
-      echo "Preparing installation..."
-      chmod +x ./_init/gomochi
-      chmod +x ./_init/resume
-      mkdir -p ../bin
-      mkdir -p ../bin/d
-      mkdir -p ../bin/d/bc
-      mkdir -p ../bin/d/ng
-      echo "Moving binaries to ../bin"
-      cp _init/* ../bin
-      mv mochimo bval bcon bup sortlt neogen wallet ../bin
-      if test -f bx
+      FULLNODE=0
+      WALLET=0
+      WORKER=0
+      echo "Installing~"
+      if test -f mochimo
       then
-         mv bx ../bin
+         FULLNODE=1
+         echo "  - Mochimo Full Node"
       fi
-      echo
-      echo "Done."
+      if test -f wallet
+      then
+         WALLET=1
+         echo "  - Mochimo CLI Wallet"
+      fi
+      if test -f worker
+      then
+         WORKER=1
+         echo "  - Mochimo Worker"
+      fi
+      case 1 in
+         $FULLNODE|$WALLET|$WORKER) # Supported installation types
+            printf "Preparing filesystem... "
+            if test $FULLNODE -eq 1
+            then
+               chmod +x ./_init/gomochi  2>>ccerror.log
+               chmod +x ./_init/resume   2>>ccerror.log
+               mkdir -p ../bin           2>>ccerror.log
+               mkdir -p ../bin/d         2>>ccerror.log
+               mkdir -p ../bin/d/bc      2>>ccerror.log
+               mkdir -p ../bin/d/ng      2>>ccerror.log
+               mkdir -p ../bin/d/wk      2>>ccerror.log
+            fi
+            if test $WALLET -eq 1
+            then
+               mkdir -p ../bin           2>>ccerror.log
+            fi
+            if test $WORKER -eq 1
+            then
+               mkdir -p ../bin           2>>ccerror.log
+            fi
+            fnCHECKERRORS
+            printf "Moving binaries... "
+            if test $FULLNODE -eq 1
+            then
+               cp _init/* ../bin  2>>ccerror.log
+               mv mochimo bval bcon bup sortlt neogen ../bin  2>>ccerror.log
+               if test -f bx
+               then
+                  mv bx ../bin  2>>ccerror.log
+               fi
+            fi
+            if test $WALLET -eq 1
+            then
+               mv wallet ../bin  2>>ccerror.log
+            fi
+            if test $WORKER -eq 1
+            then
+               mv worker ../bin  2>>ccerror.log
+            fi
+            fnCHECKERRORS
+            # Display error stats
+            fnCHECKERRORS "full"
+            ;;
+         *)
+            echo "- Nothing to install :("
+            ;;
+      esac
       ;;
    "uninstall") # Uninstall Mochimo system software
       echo "Uninstalling The Mochimo System Software..."
       cd ../bin
-      rm -f genblock.bc tfile.dat maddr.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
+      rm -f genblock.bc tfile.dat maddr.mat coreip.lst startnodes.lst startnodes.bak
       rm -f mochimo bval bcon bup sortlt neogen txclean wallet worker
       rm -f gomochi resume
-      rm -f d/bc/* d/ng/* d/*
+      rm -rf d
       du -d 3
       echo
       echo "Done."
