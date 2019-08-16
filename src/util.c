@@ -8,6 +8,7 @@
  * TCP support code.
 */
 #include "util.h"
+#include <dirent.h>
 
 #ifdef WIN32 /* Assume Windows system */
 
@@ -25,9 +26,11 @@
 
 #else /* Assume UNIXLIKE system */
 
+#include <unistd.h>
 #include <sys/time.h>
 #include <sys/wait.h>  /* for waitpid() */
 #include <sys/file.h>  /* for flock() */
+#include <termios.h>
 
 #if _POSIX_C_SOURCE >= 199309L
 #include <time.h>   /* for nanosleep */
@@ -36,64 +39,6 @@
 #endif
 
 #endif /* UNIXLIKE system */
-
-
-/* Cross platform uninterruptible sleep function */
-void msleep(uint32_t ms)
-{
-#ifdef WIN32 /* Assume Windows system */
-
-   Sleep(ms);
-
-#elif _POSIX_C_SOURCE >= 199309L
-
-   uint32_t res;
-   struct timespec ts;
-   ts.tv_sec = ms / 1000;
-   ts.tv_nsec = (ms % 1000) * 1000000L;
-   do {
-      res = nanosleep(&ts, &ts);
-   } while(res);
-
-#else /* Assume older UNIXLIKE system */
-
-   usleep(ms * 1000);
-
-#endif
-}
-
-
-/* Cross platform millisecond timestamp */
-uint64_t timestamp_ms(void)
-{
-   uint64_t ms;
-
-#ifdef WIN32 /* Assume Windows system */
-
-   FILETIME ft;
-   GetSystemTimePreciseAsFileTime(&ft);
-
-   /* FILETIME is represented in 100ns intervals by 2 DWORD's (hi & lo order)
-    * Divide by 10,000 to get milliseconds */
-   ms = ft.dwHighDateTime;
-   ms = ms << 32;
-   ms = ms | ft.dwLowDateTime;
-   ms = ms / 10000;
-
-#else /* Assume UNIXLIKE system */
-
-   struct timeval tv;
-   gettimeofday(&tv, NULL);
-
-   /* timeval holds seconds and microseconds seperately
-    * Divide microseconds by 1,000 and add to seconds */
-   ms = tv.tv_sec * 1000ULL;
-   ms = ms + (tv.tv_usec / 1000);
-
-#endif /* Not WIN32 */
-
-   return ms;
-}
 
 
 void swap32(void *val)
@@ -719,3 +664,188 @@ err:
    fclose(fp);
    return VEOK;
 }
+
+
+/* Cross platform uninterruptible sleep function */
+void msleep(uint32_t ms)
+{
+#ifdef WIN32 /* Assume Windows system */
+
+   Sleep(ms);
+
+#elif _POSIX_C_SOURCE >= 199309L
+
+   uint32_t res;
+   struct timespec ts;
+   ts.tv_sec = ms / 1000;
+   ts.tv_nsec = (ms % 1000) * 1000000L;
+   do {
+      res = nanosleep(&ts, &ts);
+   } while(res);
+
+#else /* Assume older UNIXLIKE system */
+
+   usleep(ms * 1000);
+
+#endif
+}
+
+
+/* Cross platform millisecond timestamp */
+uint64_t timestamp_ms(void)
+{
+   uint64_t ms;
+
+#ifdef WIN32 /* Assume Windows system */
+
+   FILETIME ft;
+   GetSystemTimePreciseAsFileTime(&ft);
+
+   /* FILETIME is represented in 100ns intervals by 2 DWORD's (hi & lo order)
+    * Divide by 10,000 to get milliseconds */
+   ms = ft.dwHighDateTime;
+   ms = ms << 32;
+   ms = ms | ft.dwLowDateTime;
+   ms = ms / 10000;
+
+#else /* Assume UNIXLIKE system */
+
+   struct timeval tv;
+   gettimeofday(&tv, NULL);
+
+   /* timeval holds seconds and microseconds seperately
+    * Divide microseconds by 1,000 and add to seconds */
+   ms = tv.tv_sec * 1000ULL;
+   ms = ms + (tv.tv_usec / 1000);
+
+#endif /* Not WIN32 */
+
+   return ms;
+}
+
+
+/* Cross platform function to obtain input from stdin with option to print
+ * to stdout. Allows 31 characters of input... for no reason imparticular. */
+char *ask_input(const char *msg, byte pwd)
+{
+#ifdef WIN32
+   HANDLE hstdin;
+   word32 mode;
+#else /* Assume UNIXLIKE System */
+   struct termios old, new;
+#endif /* end Not WIN32 */
+
+   static char in[64];
+   size_t len;
+   char c;
+
+   /* ask message */
+   printf("%s", msg);
+
+   /* if sensitive, disable input echo */
+   if(pwd) {
+
+#ifdef WIN32
+      hstdin = GetStdHandle(STD_INPUT_HANDLE);
+      mode = 0;
+      GetConsoleMode(hStdin, &mode);
+      SetConsoleMode(hStdin, mode & (~ENABLE_ECHO_INPUT));
+#else /* Assume UNIXLIKE System */
+      tcgetattr(STDIN_FILENO, &old);
+      new = old;
+      new.c_lflag &= ~ECHO;
+      tcsetattr(STDIN_FILENO, TCSANOW, &new);
+#endif /* end Not WIN32 */
+
+   }
+
+   /* obtain user input */
+   for(len = 0; len < 63; len++) {
+      c = fgetc(stdin); /* clears input buffer on call */
+      if(c == '\n' || c == EOF)
+         break;
+
+      in[len] = c;
+   }
+
+   /* ensure last character is null character */
+   in[len] = 0;
+
+   /* revert console state */
+   if(pwd) {
+
+#ifdef WIN32
+      SetConsoleMode(hStdin, mode);
+#else /* Assume UNIXLIKE System */
+      tcsetattr(STDIN_FILENO, TCSANOW, &old);
+#endif /* end Not WIN32 */
+      printf("\n");
+
+   }
+
+   /* notify of truncation and clear excess input */
+   if(len > 62) {
+      printf("*Truncated excessive input (>63 chars)*\n");
+      while((c = fgetc(stdin)) != '\n' && c != EOF);
+   }
+
+   return in;
+} /* end ask_input() */
+
+
+/* Duplicate file */
+int fcopy(char *fromfname, char *tofname)
+{
+   FILE *to, *from;
+
+   char temp;
+
+   if((from = fopen(fromfname, "rb")) == NULL) return 1;
+   if((to = fopen(tofname, "wb")) == NULL) {
+      fclose(from);
+      return 1;
+   }
+   while(fread(&temp, 1, 1, from) == 1) {
+      if(fwrite(&temp, 1, 1, to) != 1) {
+         fclose(from);
+         fclose(to);
+         unlink(tofname);
+         return 1;
+      }
+   }
+
+   if(ferror(from) || ferror(to)) {
+      fclose(from);
+      fclose(to);
+      unlink(tofname);
+      return 1;
+   }
+
+   fclose(from);
+   fclose(to);
+
+   return 0;
+} /* end fcopy() */
+
+
+/* Delete contents of directory */
+int dclear(char *dname)
+{
+   DIR *d;
+   struct dirent *dir;
+   char next_file[256];
+
+   if((d = opendir(dname)) == NULL) return 1;
+
+   while((dir = readdir(d)) != NULL) {
+      if(strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
+         continue;
+
+      sprintf(next_file, "%s/%s", dname, dir->d_name);
+      unlink(next_file);
+   }
+
+   closedir(d);
+
+   return 0;
+} /* end dclear() */
