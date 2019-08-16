@@ -179,7 +179,7 @@ void plog(char *fmt, ...)
 }
 
 
-/* Print colored message to log file, Logfp, and/or stdout 
+/* Print colored message to log file, Logfp, and/or stdout
  * prefixed with a short timestamp */
 void splog(short color, char *fmt, ...)
 {
@@ -197,6 +197,33 @@ void splog(short color, char *fmt, ...)
    }
    if(!Bgflag && Logfp != stdout) {
       log_time_short(stdout);
+      va_start(argp, fmt);
+      col = get_console_color();
+      tcol = (col & 0xFFF0) | color;
+      if(tcol) set_console_color(tcol);
+      vfprintf(stdout, fmt, argp);
+      set_console_color(col);
+      va_end(argp);
+      fflush(stdout);
+   }
+}
+
+
+/* Print colored message to log file, Logfp, and/or stdout */
+void cplog(short color, char *fmt, ...)
+{
+   va_list argp;
+   short col, tcol;
+
+   if(fmt == NULL) return;
+
+   if(Logfp != NULL) {
+      va_start(argp, fmt);
+      vfprintf(Logfp, fmt, argp);
+      va_end(argp);
+      fflush(Logfp);
+   }
+   if(!Bgflag && Logfp != stdout) {
       va_start(argp, fmt);
       col = get_console_color();
       tcol = (col & 0xFFF0) | color;
