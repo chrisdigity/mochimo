@@ -206,5 +206,27 @@ badwrite:
             bail(NULL);
    }
 
+   /* Copy cblock.dat to wblock.dat */
+   if(fcopy(argv[2], "wblock.tmp") != VEOK) {
+      error("bcon: could not duplicate cblock.dat to wblock.tmp");
+      bail(NULL);
+   }
+   unlink("wblock.dat");
+   if(rename("wblock.tmp", "wblock.dat")) {
+      error("bcon: rename wblock.tmp (%d)", errno);
+      bail(NULL);
+   }
+
+   /* Copy cblock.dat to wblock.dat */
+   if(fcopy("bctx.dat", "wbctx.tmp") != VEOK) {
+      error("bcon: could not duplicate bctx.dat to wbctx.tmp");
+      bail(NULL);
+   }
+   unlink("wbctx.dat");
+   if(rename("wbctx.tmp", "wbctx.dat")) {
+      error("bcon: rename wbctx.tmp (%d)", errno);
+      bail(NULL);
+   }
+
    return 0;
 }  /* end main() */

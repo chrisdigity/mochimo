@@ -62,6 +62,7 @@
 #define STATUSFREQ    10       /* status display interval sec.       */
 #define BCDIR         "bc"     /* rename to dir for block storage    */
 #define NGDIR         "ng"     /* rename to dir for neogen storage   */
+#define WKDIR         "wk"     /* rename to dir for work storage     */
 #define CPINKLEN     100       /* maximum entries in pinklists       */
 #define LPINKLEN     100
 #define EPINKLEN     100

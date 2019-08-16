@@ -80,6 +80,7 @@ void usage(void)
           "         -n         Do not solve blocks\n"
           "         -Mn        set transaction fee to n\n"
           "         -Sanctuary=N,Lastday\n"
+          "         -uUSER     set username to USER, no password\n"
    );
 #ifdef BX_MYSQL
    printf("         -X         Export to MySQL database on block update\n");
@@ -108,6 +109,9 @@ int main(int argc, char **argv)
    static int j;
    static byte endian[] = { 0x34, 0x12 };
    static char *cp;
+   
+   byte Userpass;             /* triggers input of User & Pwd     */
+   SHA256_CTX ictx;           /* for hashing User | User & Pwd    */
 
    /* sanity checks */
    if(sizeof(word32) != 4) fatal("word32 should be 4 bytes");
@@ -182,6 +186,13 @@ int main(int argc, char **argv)
          case 'M':  Myfee[0] = atoi(&argv[j][2]);
                     if(Myfee[0] < Mfee[0]) Myfee[0] = Mfee[0];
                     else Cbits |= C_MFEE;
+                    break;
+         case 'u':  if(argv[j][2]) {
+                       cp = &argv[j][2];
+                       sha256_init(&ictx);
+                       sha256_update(&ictx, (byte *) cp, strlen(cp));
+                       sha256_final(&ictx, Userhash);
+                    }
                     break;
          case 'V':  if(strcmp(&argv[j][1], "Veronica") == 0)
                        veronica();

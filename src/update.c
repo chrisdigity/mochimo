@@ -206,6 +206,7 @@ after_bup:
     * Cblocknum, Cblockhash, Prevhash, Difficulty, Time0,
     * and tfile.dat.
     */
+   if(dclear("wk") != VEOK) goto err; /* removes all worker blocks */
    if(bupdata() != VEOK) goto err;  /* calls add_weight() */
    if(append_tfile("ublock.dat", "tfile.dat") != VEOK) goto err;
    if((Cblocknum[0] & EPOCHMASK) == 0)  /* pink list epoch counter */

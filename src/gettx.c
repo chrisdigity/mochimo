@@ -227,6 +227,121 @@ int txcheck(byte *src_addr)
 }  /* end txcheck() */
 
 
+int send_work(NODE *np)
+{
+   FILE *fp;
+
+   BTRAILER *tx_bt;
+   word32 *tx_diff;
+   word32 *tx_rand;
+   SHA256_CTX *tx_bctx;
+   char fname[32];
+   int i;
+   
+   tx_bt = (BTRAILER *) np->tx.src_addr;
+   tx_diff = (word32 *) (np->tx.src_addr + BTSIZE);
+   tx_rand = (word32 *) (np->tx.src_addr + BTSIZE + 4);
+   tx_bctx = (SHA256_CTX *) (np->tx.src_addr + BTSIZE + 4 + 16);
+
+   /* prepare TX for work */
+   put16(np->tx.len, HASHLEN);
+   memcpy(np->tx.src_addr, Cblockhash, HASHLEN);
+   memset(np->tx.src_addr + HASHLEN, 0, (TRANLEN - HASHLEN));
+
+   while(exists("wblock.dat") && exists("wbctx.dat")) {
+      /* read bctx into global vars */
+      if(read_data(&Wbctx, sizeof(Wbctx), "wbctx.dat") != sizeof(Wbctx)) {
+         error("send_work(): cannot read wbctx.dat");
+         break;
+      }
+      /* read bt int global vars */
+      if((fp = fopen("wblock.dat", "rb")) == NULL) {
+         error("send_work(): cannot open wblock.dat");
+         break;
+      }
+      if(fseek(fp, -(sizeof(Wbt)), SEEK_END) != 0) {
+         error("send_work(): seek error");
+         fclose(fp);
+         break;
+      }
+      if(fread(&Wbt, 1, sizeof(Wbt), fp) != sizeof(Wbt)) {
+         error("send_work(): bt read error");
+         fclose(fp);
+         break;
+      }
+      fclose(fp);
+      /* create worker block */
+      sprintf(fname, "%s/%s.dat", Wkdir, bnum2hex_short(Wbt.mroot));
+      if(!exists(fname) && rename("wblock.dat", fname)) {
+         error("send_work(): could not rename wblock.dat");
+         break;
+      }
+      unlink("wblock.dat");
+      unlink("wbctx.dat");
+
+      break;
+   }
+
+   /* Check work is still current */
+   if(memcmp(Cblockhash, Wbt.phash, HASHLEN) == 0) {
+      /* put work into TX */
+      put16(np->tx.len, sizeof(Wbt) + 4 + 16 + sizeof(Wbctx));
+      memcpy(tx_bt, &Wbt, sizeof(Wbt));
+      memcpy(tx_diff, Wbt.difficulty, 4);
+      for(i = 0; i < 4; i++) {
+         rand16();
+         put32(&tx_rand[i], getrand16());
+      }
+      memcpy(tx_bctx, &Wbctx, sizeof(Wbctx));
+   }
+
+   /* send work */
+   return send_op(np, OP_SEND_BL);
+
+} /* end send_work() */
+
+
+int check_work(NODE *np)
+{
+   FILE *fp;
+
+   BTRAILER *tx_bt;
+   char fname[32];
+
+   tx_bt = (BTRAILER *) np->tx.src_addr;
+   sprintf(fname, "%s/%s.dat", Wkdir, bnum2hex_short(tx_bt->mroot));
+
+   while(exists(fname)) {
+      if((fp = fopen(fname, "rb+")) == NULL) {
+         error("check_work(): cannot open %s", fname);
+         break;
+      }
+      if(fseek(fp, -(BTSIZE), SEEK_END) != 0) {
+         error("check_work(): seek error");
+         fclose(fp);
+         break;
+      }
+      if(fwrite(tx_bt, 1, BTSIZE, fp) != BTSIZE) {
+         error("check_work(): bt write error");
+         fclose(fp);
+         break;
+      }
+      fclose(fp);
+      if(bval2(fname, tx_bt->bnum, get32(tx_bt->difficulty)) != VEOK) {
+         error("check_work(): bval2 failed to validate block");
+         break;
+      }
+      if(rename(fname, "mblock.dat")) {
+         error("check_work(): could not rename %s", fname);
+         break;
+      }
+      return 0;
+   }
+
+   return 1;
+} /* end check_work() */
+
+
 /* opcodes in types.h */
 #define valid_op(op)  ((op) >= FIRST_OP && (op) <= LAST_OP)
 #define crowded(op)   (Nonline > (MAXNODES - 5) && (op) != OP_FOUND)
@@ -339,6 +454,13 @@ int gettx(NODE *np, SOCKET sd)
       return 1;  /* no child */
    } else if(opcode == OP_FOUND) {
       if(Blockfound) return 1;  /* Already found one so ignore.  */
+      /* Check if this is our worker */
+     if(!iszero(Userhash, HASHLEN) &&
+        memcmp(np->tx.pblockhash, Userhash, HASHLEN) == 0) {
+        check_work(np);
+        return 1;
+      }
+      /* Otherwise... */
       status = contention(np);  /* Do we want this block? */
       if(status != 1) return 1; /* ignore: low block or weight */
 
@@ -359,6 +481,14 @@ int gettx(NODE *np, SOCKET sd)
       Blockfound = 1;
       /* fork() child in sever() */
       /* end if OP_FOUND */
+   } else if(opcode == OP_SEND_BL) {
+     /* Validate worker */
+     if(iszero(Userhash, HASHLEN) ||
+        memcmp(np->tx.pblockhash, Userhash, HASHLEN) != 0)
+        return 1;
+     /* send work if available */
+     send_work(np);
+     return 1;
    } else if(opcode == OP_BALANCE) {
       send_balance(np);
       Nsent++;
