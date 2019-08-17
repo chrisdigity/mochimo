@@ -752,7 +752,7 @@ uint64_t timestamp_ms(void)
 char *ask_input(const char *msg, byte pwd)
 {
 #ifdef WIN32
-   HANDLE hstdin;
+   HANDLE hStdin;
    word32 mode;
 #else /* Assume UNIXLIKE System */
    struct termios old, new;
@@ -769,7 +769,7 @@ char *ask_input(const char *msg, byte pwd)
    if(pwd) {
 
 #ifdef WIN32
-      hstdin = GetStdHandle(STD_INPUT_HANDLE);
+      hStdin = GetStdHandle(STD_INPUT_HANDLE);
       mode = 0;
       GetConsoleMode(hStdin, &mode);
       SetConsoleMode(hStdin, mode & (~ENABLE_ECHO_INPUT));
