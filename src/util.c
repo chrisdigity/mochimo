@@ -8,7 +8,6 @@
  * TCP support code.
 */
 #include "util.h"
-#include <dirent.h>
 
 #ifdef WIN32 /* Assume Windows system */
 
@@ -31,6 +30,7 @@
 #include <sys/wait.h>  /* for waitpid() */
 #include <sys/file.h>  /* for flock() */
 #include <termios.h>
+#include <dirent.h>
 
 #if _POSIX_C_SOURCE >= 199309L
 #include <time.h>   /* for nanosleep */
@@ -609,8 +609,8 @@ out:
       plog("reward: 0x%s", bnum2hex((byte *) reward));
 }  /* end get_mreward() */
 
-
-#ifndef WIN32 /* Windows variants of lock() and unlock() not yet available */
+/* Windows variants of lock(), unlock() & dclear() are not yet available */
+#ifndef WIN32
 
 /* Get exclusive lock on lockfile.
  * Returns: -1 if lock not made within 'seconds'
@@ -644,6 +644,29 @@ int unlock(int fd)
    close(fd);
    return status;
 }
+
+
+/* Delete contents of directory */
+int dclear(char *dname)
+{
+   DIR *d;
+   struct dirent *dir;
+   char next_file[256];
+
+   if((d = opendir(dname)) == NULL) return 1;
+
+   while((dir = readdir(d)) != NULL) {
+      if(strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
+         continue;
+
+      sprintf(next_file, "%s/%s", dname, dir->d_name);
+      unlink(next_file);
+   }
+
+   closedir(d);
+
+   return 0;
+} /* end dclear() */
 
 #endif /* Not WIN32 */
 
@@ -826,26 +849,3 @@ int fcopy(char *fromfname, char *tofname)
 
    return 0;
 } /* end fcopy() */
-
-
-/* Delete contents of directory */
-int dclear(char *dname)
-{
-   DIR *d;
-   struct dirent *dir;
-   char next_file[256];
-
-   if((d = opendir(dname)) == NULL) return 1;
-
-   while((dir = readdir(d)) != NULL) {
-      if(strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
-         continue;
-
-      sprintf(next_file, "%s/%s", dname, dir->d_name);
-      unlink(next_file);
-   }
-
-   closedir(d);
-
-   return 0;
-} /* end dclear() */

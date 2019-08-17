@@ -457,7 +457,7 @@ int worker()
       }
 
       if(Ltime >= Dtime) {
-         Dtime = time(NULL) + 60;
+         Dtime = time(NULL) + 30;
          thps = 0;
          if(Mining) {
             /* print individual device haikurates */
