@@ -9,7 +9,7 @@
  * Date: 28 April 2019
 */
 
-#define VERSIONSTR "Version 0.9.0~beta"
+#define VERSIONSTR "Version 0.9.1~beta"
 
 #define VEOK           0   /* No error                    */
 #define VERROR         1   /* General error               */
@@ -259,28 +259,38 @@ int send_work(BTRAILER *bt, byte diff)
 {
    NODE node;
 
-   int ecode = 0;
+   int ecode, i;
 
-   /* connect */
-   if(callserver(&node, Peerip) != VEOK) {
-      splog(RED, "Error: Could not connect to %s...\n", ntoa((byte *) &Peerip));
-      return VERROR;
+   for(i = 5; i > 0; i--) {
+      /* alert of re-attempt and try again in 5 seconds */
+      if(i == 1)
+         splog(YELLOW, "Warning: send_work() failed. Retrying...\n");
+      if(i > 0)
+         msleep(5000);
+
+      /* reset ecode */
+      ecode = 0;
+
+      /* connect */
+      if(callserver(&node, Peerip) != VEOK)
+         continue;
+
+      /* setup work to send */
+      put16(node.tx.len, BTSIZE + 4);
+      memcpy(node.tx.src_addr, bt, BTSIZE);             /* share block trailer */
+      memcpy(node.tx.src_addr + BTSIZE, &diff, 4);      /* share dificulty     */
+
+      /* send */
+      if(send_op(&node, OP_FOUND) != VEOK) ecode = 1;
+
+      closesocket(node.sd);
+      if(ecode == 0)
+         return VEOK;
    }
-
-   /* setup work to send */
-   put16(node.tx.len, BTSIZE + 4);
-   memcpy(node.tx.src_addr, bt, BTSIZE);             /* share block trailer */
-   memcpy(node.tx.src_addr + BTSIZE, &diff, 4);      /* share dificulty     */
-
-   /* send */
-   if(send_op(&node, OP_FOUND) != VEOK) ecode = 1;
-
-   closesocket(node.sd);
-   if(ecode) {
-      splog(RED, "Error: send_work() failed with ecode(%d)\n", ecode); 
-      return VERROR;
-   }
-   return VEOK;
+   splog(RED, "Error: send_work() failed with ecode(%d).\n", ecode);
+   splog(RED, "       Could not send share.\n");
+   
+   return VERROR;
 } /* send_work() */
 
 
@@ -345,6 +355,7 @@ int worker()
 #endif
 
    /* Main miner loop */
+   cplog(YELLOW, "\nStarting Mochimo Worker %s...\n", VERSIONSTR);
    while(Running) {
       Ltime = time(NULL);
 
@@ -400,7 +411,7 @@ int worker()
                   sdiff = Difficulty;
 
                /* Report on work status */
-               if(cmp64(host_bt->bnum, Zeros) == 0) {
+               if(cmp64(host_bt->bnum, Zeros) == 0 && Mining) {
                   Mining = 0;
                   splog(YELLOW, "No  Work | Waiting for network activity [%" PRIu64 "ms]\n",
                         msping);
@@ -464,13 +475,12 @@ int worker()
             for(i = 0; i < 64; i++) {
                if(hps[i].t_start > 0) {
                   if(i == 0)
-                     splog(0, "Devices ");
+                     splog(0, "Solving ");
                   ahps = hps[i].ahps;
                   thps += ahps;
                   for(j = 0; ahps > 1000 && j < 4; j++)
                      ahps /= 1000;
-                  printf(" | %d: %.02f %s", i, ahps, metric[j]);
-                  printf("\n");
+                  cplog(0, " | %d: %.02f %s", i, ahps, metric[j]);
                }
             }
             /* print a "total haikurate" if more than one device */
@@ -478,8 +488,9 @@ int worker()
                ahps = thps;
                for(j = 0; ahps > 1000 && j < 4; j++)
                   ahps /= 1000;
-               printf(" | Total: %.02f %s\n", ahps, metric[j]);
+               cplog(0, " | Total: %.02f %s\n", ahps, metric[j]);
             }
+            cplog(0, "\n");
          }
          /* update total hashrate for TX struct */
          put64(Weight + 24, &thps);
@@ -516,34 +527,28 @@ int worker()
                   printf("\n%s\n\n", haiku);
                }
                /* Offer share to the Host */
-               for(i = 4, j = 0; i > -1; i--) {
-                  msping = timestamp_ms();
-                  if(send_work(&Wbt, sdiff) == VEOK) {
-                     msping = timestamp_ms() - msping;
-                     shares++;
-                     /* Estimate Share Rate */
-                        /* add to total haikus */
-                        haikus += (1 << sdiff);
-                        /* calculate average haikurate over session */
-                        ahps = haikus / (time(NULL) - Stime);
-                        /* get haikurate metric */
-                        for(i = 0; i < 4; i++) {
-                           if(ahps < 1000) break;
-                           ahps /= 1000;
-                        }
-                     /* end Estimate Share Rate */
-                     /* Output share statistics */
-                     splog(GREEN, "Success! | Solves: %u / Shares: %u / "
-                           "Failed: %u [%lums]\n", solves, shares,
-                           failed, msping);
-                     splog(0, "Estimated Share Rate: %.02f %s\n",
-                           ahps, metric[i]);
-                     break;
-                  }
-                  msleep(5000);
+               msping = timestamp_ms();
+               if(send_work(&Wbt, sdiff) == VEOK) {
+                  msping = timestamp_ms() - msping;
+                  shares++;
+                  /* Estimate Share Rate */
+                     /* add to total haikus */
+                     haikus += (1 << sdiff);
+                     /* calculate average haikurate over session */
+                     ahps = haikus / (time(NULL) - Stime);
+                     /* get haikurate metric */
+                     for(i = 0; i < 4; i++) {
+                        if(ahps < 1000) break;
+                        ahps /= 1000;
+                     }
+                  /* end Estimate Share Rate */
+                  /* Output share statistics */
+                  splog(GREEN, "Success! | Solves: %u / Shares: %u / "
+                        "Failed: %u [%lums]\n", solves, shares,
+                        failed, msping);
+                  splog(0, "Estimated Share Rate: %.02f %s\n",
+                        ahps, metric[i]);
                }
-               if(i < 0)
-                  splog(RED, "Failed to send share to host :(\n");
             }
             /* reset solution */
             Blockfound = 0;
@@ -751,7 +756,7 @@ int main(int argc, char **argv)
    "   @@  @@  @@  @@  @@  @@    Difficulty... %u (%s)\n"
    "    @@@@@@@@@@@@@@@@@@@@     Userhashed... %s\n"
    "      @@@          @@@\n"
-   "         @@@@@@@@@@        Starting up...\n\n",
+   "         @@@@@@@@@@        Initializing...\n\n",
    Weight[0] ? (char *) Weight : "", ntoa((byte*) &Peerip), Port, Interval,
    Difficulty, Difficulty == 255 ? "auto" : Difficulty > 0 ? "manual" : "host",
    !iszero(Userhash, HASHLEN) ? "yes" : "no");
@@ -780,6 +785,7 @@ int main(int argc, char **argv)
 
    /**
     * End */
-   printf("\n\nWorker exiting...\n\n");
+   cplog(0, "\n");
+   splog(0, "Worker exiting...\n");
    return 0;
 } /* end main() */
