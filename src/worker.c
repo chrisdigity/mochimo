@@ -9,7 +9,7 @@
  * Date: 28 April 2019
 */
 
-#define VERSIONSTR "Version 0.9.1~beta"
+#define VERSIONSTR "Version 0.9.2~beta"
 
 #define VEOK           0   /* No error                    */
 #define VERROR         1   /* General error               */
@@ -411,10 +411,12 @@ int worker()
                   sdiff = Difficulty;
 
                /* Report on work status */
-               if(cmp64(host_bt->bnum, Zeros) == 0 && Mining) {
-                  Mining = 0;
-                  splog(YELLOW, "No  Work | Waiting for network activity [%" PRIu64 "ms]\n",
-                        msping);
+               if(cmp64(host_bt->bnum, Zeros) == 0) {
+                  if(Mining) {
+                     Mining = 0;
+                     splog(YELLOW, "No  Work | Waiting for network activity [%"
+                                    PRIu64 "ms]\n", msping);
+                  }
                } else {
                   Mining = 1;
                   splog(YELLOW, "New Work | 0x%s... b%s, d%d, t%d "
@@ -488,7 +490,7 @@ int worker()
                ahps = thps;
                for(j = 0; ahps > 1000 && j < 4; j++)
                   ahps /= 1000;
-               cplog(0, " | Total: %.02f %s\n", ahps, metric[j]);
+               cplog(0, " | Total: %.02f %s", ahps, metric[j]);
             }
             cplog(0, "\n");
          }
