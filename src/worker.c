@@ -265,7 +265,7 @@ int send_work(BTRAILER *bt, byte diff)
       /* alert of re-attempt and try again in 5 seconds */
       if(i == 1)
          splog(YELLOW, "Warning: send_work() failed. Retrying...\n");
-      if(i > 0)
+      if(i < 5)
          msleep(5000);
 
       /* reset ecode */
@@ -418,8 +418,8 @@ int worker()
             if(cmp64(host_bt->bnum, Zeros) == 0) {
                if(Mining) {
                   Mining = 0;
-                  splog(YELLOW, "No  Work | Waiting for network activity [%"
-                                 PRIu64 "ms]\n", msping);
+                  splog(YELLOW, "No  Work | Waiting for network activity "
+                                "[%" PRIu64 "ms]\n", msping);
                }
             } else {
                Mining = 1;
