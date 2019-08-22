@@ -9,7 +9,7 @@
  * Date: 28 April 2019
 */
 
-#define VERSIONSTR "Version 0.9.2~beta"
+#define VERSIONSTR "Version 0.9.3~beta"
 
 #define VEOK           0   /* No error                    */
 #define VERROR         1   /* General error               */
@@ -54,8 +54,6 @@ void stop_mirror(void) { /* do nothing */ }
 /* Include global data */
 #include "data.c"          /* System wide globals              */
 byte Interval;             /* get_work() poll interval seconds */
-byte Mining;               /* triggers the mining process      */
-byte Showhaiku;            /* triggers the output of haiku     */
 
 /* Support functions   */
 #include "error.c"         /* error logging etc.               */
@@ -215,21 +213,23 @@ int uninit_miner()
 int get_work(NODE *np)
 {
    int ecode = 0;
+   int rxstatus = 0;
 
    /* connect using Mochimo handshake */
    if(callserver(np, Peerip) != VEOK) {
-      splog(RED, "Error: Could not connect to %s:%hu\n",
-            ntoa((byte *) &Peerip), Dstport);
+      splog(RED, "Error: Could not connect to host\n");
       return VERROR;
    }
 
    /* request work */
    if(send_op(np, OP_SEND_BL) != VEOK) ecode = 1;
-   if(!ecode && rx2(np, 1, 10) != VEOK) ecode = 2;
+   if(!ecode && (rxstatus = rx2(np, 1, 10)) != VEOK) ecode = 2;
    if(!ecode && get16(np->tx.opcode) != OP_SEND_BL) ecode = 3;
 
    closesocket(np->sd);
    if(ecode) {
+      if(rxstatus == VETIMEOUT)
+         splog(YELLOW, "Warning: Host connection TIMEOUT\n");
       splog(RED, "Error: get_work() failed with ecode(%d)\n", ecode); 
       return VERROR;
    }
@@ -309,9 +309,8 @@ int worker()
    float ahps, thps;
    time_t Wtime, Stime, Dtime;
    uint64_t msping, msinit, haikus;
-   word32 solves, shares, lastshares, failed;
-   byte rdiff, sdiff, adiff;
-   byte nvml_ok, result;
+   word32 solves, shares, lastshares, invalid, failed;
+   byte Mining, nvml_ok, result, rdiff, sdiff, adiff;
    int i, j, k;
 
    /* Initialize... */
@@ -320,13 +319,15 @@ int worker()
    };                          /* ... haikurate metrics              */
    char haiku[256] = {0};      /* ... stores nonce as haiku          */
    byte Zeros[32] = {0};       /* ... Zeros (comparison hash)        */
+   Mining = 0;                 /* ... Triggers mining process        */
    result = 0;                 /* ... holds result of certain ops    */
    rdiff = 0;                  /* ... tracks requested difficulty    */
    sdiff = 0;                  /* ... tracks solving difficulty      */
    adiff = 0;                  /* ... tracks auto difficulty buff    */
    solves = 0;                 /* ... block solve count              */
    shares = 0;                 /* ... valid share count              */
-   failed = 0;                 /* ... failed share count            */
+   invalid = 0;                /* ... invalid share count            */
+   failed = 0;                 /* ... failed share count             */
    lastshares = 0;             /* ... solution count (from get_work) */
    haikus = 0;                 /* ... counts total hashes performed  */
 
@@ -364,108 +365,110 @@ int worker()
 
          /* get work from host */
          msping = timestamp_ms();
-         if(get_work(&node) == VEOK) {
-            msping = timestamp_ms() - msping;
+         if(get_work(&node) != VEOK) {
+            put64(host_bt->bnum, Zeros);
+            Mining = 0;
+         }
+         msping = timestamp_ms() - msping;
 
-            /* speed up polling if network is paused *
-            Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval :
-                                  Interval/10 == 0 ? 1 : Interval/10);*/
+         /* speed up polling if network is paused *
+         Wtime = time(NULL) + (cmp64(bt.bnum,Zeros) != 0 ? Interval :
+                               Interval/10 == 0 ? 1 : Interval/10);*/
 
-            /* check for autodiff adjustment conditions */
-            if(Difficulty == 255 && lastshares + 2 < shares) {
-               for(i = shares - lastshares + 2; i > 0; i /= 3)
-                  adiff++;
-               splog(YELLOW, "AutoDiff | Adjust Difficulty %d -> %d\n",
-                     sdiff, rdiff + adiff);
+         /* check for autodiff adjustment conditions */
+         if(Difficulty == 255 && lastshares + 2 < shares) {
+            for(i = shares - lastshares + 2; i > 0; i /= 3)
+               adiff++;
+            splog(YELLOW, "AutoDiff | Adjust Difficulty %d -> %d\n",
+                  sdiff, rdiff + adiff);
+         }
+         /* reset autodiff share indicator */
+         lastshares = shares;
+
+         /* check for work updates
+          * ...change to requested difficulty
+          * ...change to auto difficulty
+          * ...change to block trailer */
+         if(rdiff != *host_diff ||
+            (Difficulty == 255 && sdiff != rdiff + adiff) ||
+            memcmp((byte *) &Wbt, (byte *) host_bt, 92) != 0) {
+
+            /* update requested diff and random */
+            rdiff = *host_diff;
+            if(!iszero(host_rand, 16))
+               srand2(get32(host_rand),
+                      get32(host_rand + 4),
+                      get32(host_rand + 4 + 4));
+
+            /* switch difficulty handling to auto if manual too low */
+            if(Difficulty != 0 && Difficulty != 255 && Difficulty < rdiff) {
+               splog(RED, "Difficulty is lower than required! (%d < %d)\n",
+                     Difficulty, rdiff);
+               splog(YELLOW, "Switching difficulty to host...\n");
+               Difficulty = 0;
             }
-            /* reset autodiff share indicator */
-            lastshares = shares;
+            if(Difficulty == 0)
+               sdiff = rdiff;
+            else if(Difficulty == 255)
+               sdiff = rdiff + adiff;
+            else
+               sdiff = Difficulty;
 
-            /* check for work updates
-             * ...change to requested difficulty
-             * ...change to auto difficulty
-             * ...change to block trailer */
-            if(rdiff != *host_diff ||
-               (Difficulty == 255 && sdiff != rdiff + adiff) ||
-               memcmp((byte *) &Wbt, (byte *) host_bt, 92) != 0) {
-
-               /* update requested diff and random */
-               rdiff = *host_diff;
-               if(!iszero(host_rand, 16))
-                  srand2(get32(host_rand),
-                         get32(host_rand + 4),
-                         get32(host_rand + 4 + 4));
-
-               /* switch difficulty handling to auto if manual too low */
-               if(Difficulty != 0 && Difficulty != 255 && Difficulty < rdiff) {
-                  splog(RED, "Difficulty is lower than required! (%d < %d)\n",
-                        Difficulty, rdiff);
-                  splog(YELLOW, "Switching difficulty to host...\n");
-                  Difficulty = 0;
+            /* Report on work status */
+            if(cmp64(host_bt->bnum, Zeros) == 0) {
+               if(Mining) {
+                  Mining = 0;
+                  splog(YELLOW, "No  Work | Waiting for network activity [%"
+                                 PRIu64 "ms]\n", msping);
                }
-               if(Difficulty == 0)
-                  sdiff = rdiff;
-               else if(Difficulty == 255)
-                  sdiff = rdiff + adiff;
-               else
-                  sdiff = Difficulty;
+            } else {
+               Mining = 1;
+               splog(YELLOW, "New Work | 0x%s... b%s, d%d, t%d "
+                             "[%" PRIu64 "ms]\n", addr2str(host_bt->mroot),
+                             bnum2hex_short(host_bt->bnum), rdiff,
+                             get32(host_bt->tcount), msping);
+            }
 
-               /* Report on work status */
-               if(cmp64(host_bt->bnum, Zeros) == 0) {
-                  if(Mining) {
-                     Mining = 0;
-                     splog(YELLOW, "No  Work | Waiting for network activity [%"
-                                    PRIu64 "ms]\n", msping);
-                  }
+            /* on phash change, initialize new Peach map */
+            if(!iszero(host_bt->phash, HASHLEN)) {
+               if(memcmp(Wbt.phash, host_bt->phash, HASHLEN) != 0) {
+                  if(!iszero(Wbt.phash, HASHLEN))
+                     uninit_miner();
+                  splog(YELLOW, "NewBlock | Initializing Peach Map... ");
+                  msinit = timestamp_ms();
+                  result = init_miner(host_bt, sdiff);
+                  msinit = timestamp_ms() - msinit;
+                  cplog(YELLOW, "[%" PRIu64 "ms]\n", msinit);
+               } else result = update_miner(host_bt, sdiff);
+               /* check initialization */
+               if(result != VEOK) {
+                  splog(RED, "InitFail | Check Devices...\n");
+                  Mining = 0;
                } else {
-                  Mining = 1;
-                  splog(YELLOW, "New Work | 0x%s... b%s, d%d, t%d "
-                                "[%" PRIu64 "ms]\n", addr2str(host_bt->mroot),
-                                bnum2hex_short(host_bt->bnum), rdiff,
-                                get32(host_bt->tcount), msping);
-               }
-
-               /* on phash change, initialize new Peach map */
-               if(!iszero(host_bt->phash, HASHLEN)) {
-                  if(memcmp(Wbt.phash, host_bt->phash, HASHLEN) != 0) {
-                     if(!iszero(Wbt.phash, HASHLEN))
-                        uninit_miner();
-                     splog(YELLOW, "NewBlock | Initializing Peach Map... ");
-                     msinit = timestamp_ms();
-                     result = init_miner(host_bt, sdiff);
-                     msinit = timestamp_ms() - msinit;
-                     cplog(YELLOW, "[%" PRIu64 "ms]\n", msinit);
-                  } else result = update_miner(host_bt, sdiff);
-                  /* check initialization */
-                  if(result != VEOK) {
-                     splog(RED, "InitFail | Check Devices...\n");
-                     Mining = 0;
-                  } else {
-                     /* update local bt and bctx */
-                     memcpy((byte *) &Wbt, (byte *) host_bt, BTSIZE);
-                     memcpy((byte *) &Wbctx, (byte *) host_bctx, sizeof(Wbctx));
-                  }
+                  /* update local bt and bctx */
+                  memcpy((byte *) &Wbt, (byte *) host_bt, BTSIZE);
+                  memcpy((byte *) &Wbctx, (byte *) host_bctx, sizeof(Wbctx));
                }
             }
-            /* extra output */
-            if(Trace) {
-               printf("  Sharediff=%u | Lseed2=0x%08X | Lseed3=0x%08X | Lseed4=0x%08X\n",
-                      sdiff, Lseed2, Lseed3, Lseed4);
-               printf("  bt= ");
-               for(i = 0; i < 92; i++) {
-                  if(i % 16 == 0 && i)
-                     printf("\n      ");
-                  printf("%02X ", ((byte *) &Wbt)[i]);
-               }
-               printf("...00\n");
-               printf("bctx= ");
-               for(i = 0; i < sizeof(Wbctx); i++) {
-                  if(i % 16 == 0 && i)
-                     printf("\n      ");
-                  printf("%02X ", ((byte *) &Wbctx)[i]);
-               }
-               printf("\n");
+         }
+         /* extra output */
+         if(Trace) {
+            printf("  Sharediff=%u | Lseed2=0x%08X | Lseed3=0x%08X | Lseed4=0x%08X\n",
+                   sdiff, Lseed2, Lseed3, Lseed4);
+            printf("  bt= ");
+            for(i = 0; i < 92; i++) {
+               if(i % 16 == 0 && i)
+                  printf("\n      ");
+               printf("%02X ", ((byte *) &Wbt)[i]);
             }
+            printf("...00\n");
+            printf("bctx= ");
+            for(i = 0; i < sizeof(Wbctx); i++) {
+               if(i % 16 == 0 && i)
+                  printf("\n      ");
+               printf("%02X ", ((byte *) &Wbctx)[i]);
+            }
+            printf("\n");
          }
       }
 
@@ -510,7 +513,7 @@ int worker()
          if(Blockfound) {
             /* ... better double check share before sending */
             if(peach(&Wbt, sdiff, NULL, 1)) {
-               failed++;
+               invalid++;
                splog(RED, "Error: The Mochimo gods have rejected your share :(\n");
             } else {
                if(sdiff >= get32(Wbt.difficulty) ||
@@ -522,8 +525,6 @@ int worker()
                   /* finish block hash */
                   sha256_update(&Wbctx, Wbt.nonce, HASHLEN + 4);
                   sha256_final(&Wbctx, Wbt.bhash);
-               }
-               if(Showhaiku) {
                   /* Mmmm... Nice haiku */
                   trigg_expand2(Wbt.nonce, haiku);
                   printf("\n%s\n\n", haiku);
@@ -546,11 +547,12 @@ int worker()
                   /* end Estimate Share Rate */
                   /* Output share statistics */
                   splog(GREEN, "Success! | Solves: %u / Shares: %u / "
-                        "Failed: %u [%lums]\n", solves, shares,
-                        failed, msping);
+                        "Invalid: %u / Failed: %u [%lums]\n", solves,
+                        shares, invalid, failed, msping);
                   splog(0, "Estimated Share Rate: %.02f %s\n",
                         ahps, metric[i]);
-               }
+               } else
+                  failed++;
             }
             /* reset solution */
             Blockfound = 0;
@@ -577,8 +579,6 @@ void usage(void)
           "         -uUSER     set username to USER, no password\n"
           "         -l         open mochi.log file\n"
           "         -lFNAME    open log file FNAME\n"
-          "         -e         enable error.log file\n"
-          "         --haiku    enable haiku output\n"
    );
    exit(0);
 } /* end worker() */
@@ -627,8 +627,6 @@ int main(int argc, char **argv)
    Peerip = 0x0100007f;    /* Default host IP */
    Port = Dstport = PORT1; /* Default host port (2095) */
    Interval = 10;          /* Default get_work() interval seconds */
-   Mining = 0;             /* Default not (yet) mining */
-   Showhaiku = 0;          /* Default avoid spamming haiku :( */
    Difficulty = 0;         /* Default difficulty (0 = host) */
    Dynasleep = 10000;      /* Default 10 ms */
    Blockfound = 0;         /* Default share not (yet) found */
@@ -721,11 +719,6 @@ int main(int argc, char **argv)
                        Logfp = fopen(&argv[j][2], "a");
                     else
                        Logfp = fopen(LOGFNAME, "a");
-                    break;
-         case 'e':  Errorlog = 1;  /* enable "error.log" file */
-                    break;
-         case '-':  if(strcmp(&argv[j][1], "-haiku") == 0)
-                       Showhaiku = 1;
                     break;
          default:   usage();
       }  /* end switch */
