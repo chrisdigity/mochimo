@@ -9,7 +9,7 @@
  * Date: 28 April 2019
 */
 
-#define VERSIONSTR "Version 0.9.3~beta"
+#define VERSIONSTR "Version 0.9.4~beta"
 
 #define VEOK           0   /* No error                    */
 #define VERROR         1   /* General error               */
@@ -277,8 +277,8 @@ int send_work(BTRAILER *bt, byte diff)
 
       /* setup work to send */
       put16(node.tx.len, BTSIZE + 4);
-      memcpy(node.tx.src_addr, bt, BTSIZE);             /* share block trailer */
-      memcpy(node.tx.src_addr + BTSIZE, &diff, 4);      /* share dificulty     */
+      memcpy(node.tx.src_addr, bt, BTSIZE);          /* share block trailer */
+      put32(node.tx.src_addr + BTSIZE, diff);        /* share dificulty     */
 
       /* send */
       if(send_op(&node, OP_FOUND) != VEOK) ecode = 1;
