@@ -306,9 +306,9 @@ int worker()
    word32 *host_rand;
    SHA256_CTX *host_bctx;
 
-   float ahps, thps;
+   float ahps;
    time_t Wtime, Stime, Dtime;
-   uint64_t msping, msinit, haikus;
+   uint64_t msping, msinit, haikus, thps;
    word32 solves, shares, lastshares, invalid, failed;
    byte Mining, nvml_ok, result, rdiff, sdiff, adiff;
    int i, j, k;
@@ -482,7 +482,7 @@ int worker()
                   if(i == 0)
                      splog(0, "Solving ");
                   ahps = hps[i].ahps;
-                  thps += ahps;
+                  thps += hps[i].ahps;
                   for(j = 0; ahps > 1000 && j < 4; j++)
                      ahps /= 1000;
                   cplog(0, " | %d: %.02f %s", i, ahps, metric[j]);
