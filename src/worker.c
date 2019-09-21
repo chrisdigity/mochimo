@@ -9,7 +9,7 @@
  * Date: 28 April 2019
 */
 
-#define VERSIONSTR "Version 0.9.4~beta"
+#define VERSIONSTR "Version 0.9.5~rc"
 
 #define VEOK           0   /* No error                    */
 #define VERROR         1   /* General error               */
