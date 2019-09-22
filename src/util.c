@@ -721,15 +721,19 @@ uint64_t timestamp_ms(void)
 
 #ifdef WIN32 /* Assume Windows system */
 
-   FILETIME ft;
-   GetSystemTimePreciseAsFileTime(&ft);
+   int64_t count;
+   static int64_t freq;
+   /* The frequency of the performance counter is fixed at system boot and is
+    * consistent across all processors. Therefore, the frequency need only be
+    * queried upon application initialization, and the result can be cached.
+    * - WINAPI */
 
-   /* FILETIME is represented in 100ns intervals by 2 DWORD's (hi & lo order)
-    * Divide by 10,000 to get milliseconds */
-   ms = ft.dwHighDateTime;
-   ms = ms << 32;
-   ms = ms | ft.dwLowDateTime;
-   ms = ms / 10000;
+   if(freq == 0)
+      QueryPerformanceFrequency(&freq);
+   QueryPerformanceCounter(&count);
+   
+   ms = count * 1000; /* for millisecond precision */
+   ms = ms / freq; /* converts count to time */
 
 #else /* Assume UNIXLIKE system */
 
