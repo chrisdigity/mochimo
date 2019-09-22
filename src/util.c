@@ -721,19 +721,19 @@ uint64_t timestamp_ms(void)
 
 #ifdef WIN32 /* Assume Windows system */
 
-   int64_t count;
-   static int64_t freq;
+   LARGE_INTEGER count;
+   static LARGE_INTEGER freq;
    /* The frequency of the performance counter is fixed at system boot and is
     * consistent across all processors. Therefore, the frequency need only be
     * queried upon application initialization, and the result can be cached.
     * - WINAPI */
 
-   if(freq == 0)
+   if(freq.QuadPart == 0)
       QueryPerformanceFrequency(&freq);
    QueryPerformanceCounter(&count);
    
-   ms = count * 1000; /* for millisecond precision */
-   ms = ms / freq; /* converts count to time */
+   ms = count.QuadPart * 1000; /* for millisecond precision */
+   ms = ms / freq.QuadPart; /* converts count to time */
 
 #else /* Assume UNIXLIKE system */
 
