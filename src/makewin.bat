@@ -178,11 +178,13 @@ REM Function to get CUDA Compute Capabilities
    nvcc -o getcudacompute.exe getcudacompute.cu >>ccerror.log 2>&1
    for /F "tokens=* USEBACKQ" %%i in (`getcudacompute.exe`) do @set CUDA_GENCODE=%%i
    del /f /q "getcudacompute.exe" "getcudacompute.lib" "getcudacompute.exp"
-   if "%CUDA_GENCODE%"=="" (
+REM set CUDA_GENCODE=""
+   if %CUDA_GENCODE%=="" (
       echo.
       echo Unable to automatically determine GPU compute level.
       echo | set /p="Using defaults... "
-      set CUDA_GENCODE="-gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75"
+      REM https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+      set "CUDA_GENCODE=-gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_86,code=sm_86"
    )
    REM Determine CUDA include and library directories
    for /F "delims=" %%i in ('where /F nvcc') do (
