@@ -130,6 +130,7 @@ REM ################
 REM Process command
 
 if "%1"=="worker" goto worker
+if "%1"=="clean" goto clean
 goto END
 
 REM Compile the Mochimo worker
@@ -152,6 +153,14 @@ REM Compile the Mochimo worker
    call :fnCHECKERRLOG "full"
    REM Cleanup object files
    del /f /q "worker.obj" "sha256.obj" "wots.obj" "trigg.obj" "cuda_peach.obj"
+   goto END
+
+REM Clean Mochimo compilation files
+:clean
+   echo | set /p="Cleanup... "
+   del /f /q "worker.obj" "sha256.obj" "wots.obj" "trigg.obj" "cuda_peach.obj" "worker.exe" "ccerror.log"
+   echo Done
+   goto END
 
 REM END
 :END
