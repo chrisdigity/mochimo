@@ -48,7 +48,7 @@ set WARNINGS=0
 set NEWERRORS=0
 set NEWWARNINGS=0
 set CUDANODE=0
-set CUDA_GENCODE=""
+set CUDA_GENCODE=
 
 
 REM ################
@@ -130,7 +130,6 @@ REM ################
 REM Process command
 
 if "%1"=="worker" goto worker
-if "%1"=="clean" goto clean
 goto END
 
 REM Compile the Mochimo worker
@@ -153,14 +152,6 @@ REM Compile the Mochimo worker
    call :fnCHECKERRLOG "full"
    REM Cleanup object files
    del /f /q "worker.obj" "sha256.obj" "wots.obj" "trigg.obj" "cuda_peach.obj"
-   goto END
-
-REM Clean Mochimo compilation files
-:clean
-   echo | set /p="Cleanup... "
-   del /f /q "worker.obj" "sha256.obj" "wots.obj" "trigg.obj" "cuda_peach.obj" "worker.exe" "ccerror.log"
-   echo Done
-   goto END
 
 REM END
 :END
@@ -182,17 +173,16 @@ REM Usage
    echo.
    EXIT /B 0
 
+REM https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
 REM Function to get CUDA Compute Capabilities
 :fnGETCUDACOMPUTE
    nvcc -o getcudacompute.exe getcudacompute.cu >>ccerror.log 2>&1
    for /F "tokens=* USEBACKQ" %%i in (`getcudacompute.exe`) do @set CUDA_GENCODE=%%i
    del /f /q "getcudacompute.exe" "getcudacompute.lib" "getcudacompute.exp"
-REM set CUDA_GENCODE=""
-   if %CUDA_GENCODE%=="" (
+   if "%CUDA_GENCODE%"=="" (
       echo.
       echo Unable to automatically determine GPU compute level.
       echo | set /p="Using defaults... "
-      REM https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
       set "CUDA_GENCODE=-gencode arch=compute_52,code=sm_52 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_86,code=sm_86"
    )
    REM Determine CUDA include and library directories
